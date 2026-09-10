@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "LLM Page Translator",
+  "version": "0.1.0",
+  "description": "Translate all readable content of the current page via any OpenAI-compatible LLM API.",
+  "permissions": ["storage", "scripting"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "options_page": "src/options/options.html",
+  "action": {
+    "default_title": "Translate / restore this page"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": [
+        "src/shared/constants.js",
+        "src/shared/batch.js",
+        "src/shared/cache.js",
+        "src/content/detect.js",
+        "src/content/collect.js",
+        "src/content/apply.js",
+        "src/content/observer.js",
+        "src/content/main.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
