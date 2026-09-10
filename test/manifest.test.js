@@ -19,13 +19,15 @@ describe('manifest.json', () => {
     expect(manifest.host_permissions).toEqual(expect.arrayContaining(['http://*/*', 'https://*/*']));
   });
 
-  it('content_scripts js files exist on disk (for files defined so far)', () => {
-    const known = ['src/shared/constants.js'];
-    manifest.content_scripts[0].js
-      .filter((f) => known.includes(f))
-      .forEach((f) => expect(existsSync(resolve(root, f))).toBe(true));
-    expect(manifest.content_scripts[0].js[manifest.content_scripts[0].js.length - 1])
-      .toBe('src/content/main.js');
+  it('all content_scripts js files exist on disk', () => {
+    const js = manifest.content_scripts[0].js;
+    expect(js[js.length - 1]).toBe('src/content/main.js');
+    js.forEach((f) => expect(existsSync(resolve(root, f)), `${f} should exist`).toBe(true));
+  });
+
+  it('referenced background service worker and options page exist on disk', () => {
+    expect(existsSync(resolve(root, manifest.background.service_worker))).toBe(true);
+    expect(existsSync(resolve(root, manifest.options_page))).toBe(true);
   });
 
   it('background service worker is an ESM module', () => {
