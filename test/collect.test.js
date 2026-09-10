@@ -70,3 +70,23 @@ describe('collect', () => {
     expect(items.filter((i) => i.kind === 'text').map((i) => i.text)).not.toContain('code sample');
   });
 });
+
+describe('collectMany', () => {
+  it('assigns globally unique ids across multiple roots (no per-root i0 collision)', () => {
+    document.body.innerHTML = '<div id="a">Alpha</div><div id="b">Bravo</div><div id="c">Charlie</div>';
+    const roots = ['a', 'b', 'c'].map((id) => document.getElementById(id));
+    const items = Collect.collectMany(roots, {});
+    const ids = items.map((i) => i.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    const byText = new Map(items.map((i) => [i.text, i.id]));
+    expect(byText.get('Alpha')).not.toBe(byText.get('Bravo'));
+    expect(byText.get('Bravo')).not.toBe(byText.get('Charlie'));
+  });
+
+  it('skips non-element roots and returns empty for empty input', () => {
+    document.body.innerHTML = '<p>Only</p>';
+    expect(Collect.collectMany([], {})).toEqual([]);
+    expect(Collect.collectMany([null, document.createTextNode('x')], {})).toEqual([]);
+    expect(Collect.collectMany([document.body], {}).map((i) => i.text)).toEqual(['Only']);
+  });
+});

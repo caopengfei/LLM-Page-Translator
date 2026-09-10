@@ -40,13 +40,8 @@
   function keyOf(rec) { return Collect.skipKey(rec.kind, rec.attr); }
 
   async function translateRoots(roots, targetLang) {
-    const items = [];
-    roots.forEach((root) => {
-      const type = root && root.nodeType;
-      if (type === 1 || type === 9) {
-        items.push(...Collect.collect(root, { skip: skipMap }));
-      }
-    });
+    // collectMany 在合并多个 root 后统一重新编号,避免各 root 的 'i0' id 冲突导致译文串位
+    const items = Collect.collectMany(roots, { skip: skipMap });
     if (!items.length) return 0;
     const res = await send({
       type: C.MSG.TRANSLATE_BATCH,

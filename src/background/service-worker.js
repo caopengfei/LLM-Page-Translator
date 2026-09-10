@@ -194,7 +194,12 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
       if (!tab || !tab.id) return;
       chrome.tabs.sendMessage(tab.id, { type: C.MSG.TOGGLE }).catch(() => {
         if (chrome.scripting && chrome.scripting.executeScript) {
-          chrome.scripting.executeScript({ target: { tabId: tab.id }, files: CONTENT_FILES }).catch(() => {});
+          // content script 未注入(安装后首次点击 / 页面在安装前已打开):先注入,
+          // 注入成功后补发 TOGGLE,否则本次点击会被吞掉、需要用户点第二次
+          chrome.scripting
+            .executeScript({ target: { tabId: tab.id }, files: CONTENT_FILES })
+            .then(() => chrome.tabs.sendMessage(tab.id, { type: C.MSG.TOGGLE }))
+            .catch(() => {});
         }
       });
     });

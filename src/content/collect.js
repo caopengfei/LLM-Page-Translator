@@ -87,8 +87,22 @@
     return items;
   }
 
-  const ExtCollect = { makeSkipMap, skipKey, isSkipped, markSkipped, unmarkSkipped, collect };
+  // 多个 root 合并收集(观察器一次可能上报多个新增子树):
+  // collect() 每次调用都从 'i0' 起编号,直接拼接会产生重复 id 导致译文串位;
+  // 这里合并后统一重新编号,保证 id 在整批内全局唯一。
+  function collectMany(roots, options) {
+    const items = [];
+    (roots || []).forEach((root) => {
+      const type = root && root.nodeType;
+      if (type === 1 || type === 9) items.push(...collect(root, options));
+    });
+    items.forEach((item, i) => { item.id = 'i' + i; });
+    return items;
+  }
+
+  const ExtCollect = { makeSkipMap, skipKey, isSkipped, markSkipped, unmarkSkipped, collect, collectMany };
   global.Ext = global.Ext || {};
   global.Ext.collect = ExtCollect;
   if (typeof module !== 'undefined' && module.exports) module.exports = ExtCollect;
 })(typeof globalThis !== 'undefined' ? globalThis : self);
+
