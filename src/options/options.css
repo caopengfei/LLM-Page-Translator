@@ -1,0 +1,7 @@
+body { font-family: system-ui, sans-serif; margin: 24px auto; max-width: 480px; }
+label { display: block; margin: 12px 0; }
+input, select { display: block; width: 100%; box-sizing: border-box; padding: 6px; margin-top: 4px; }
+.actions { display: flex; gap: 8px; align-items: center; margin-top: 16px; }
+#status.ok { color: #0a7a0a; }
+#status.error { color: #b00020; }
+.hint { color: #666; font-size: 13px; }
