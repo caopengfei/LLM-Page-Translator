@@ -316,6 +316,30 @@ describe('streaming batch results to the tab', () => {
   });
 });
 
+describe('cache write failures', () => {
+  it('keeps the batch successful and still streams when the cache write fails', async () => {
+    const { deps } = makeDeps();
+    const pushed = [];
+    deps.sendToTab = async (tabId, msg) => { pushed.push(msg); };
+    deps.cacheBackend = {
+      getMany: async () => ({}),
+      setMany: async () => { throw new Error('QUOTA_BYTES quota exceeded'); },
+      getAll: async () => ({}),
+      remove: async () => {},
+      quotaBytes: () => 0,
+      bytesInUse: async () => 0
+    };
+    const res = await makeMessageHandler(deps)(
+      { type: C.MSG.TRANSLATE_BATCH, items: [{ id: 'a', text: 'Hello' }], targetLang: 'zh-CN' },
+      { tab: { id: 3 } }
+    );
+    expect(res.ok).toBe(true);
+    expect(res.translations.a).toBe('你好');
+    expect(res.partial).toBeUndefined(); // 缓存写失败不算批次失败
+    expect(pushed.length).toBe(1); // 流式推送照常发生
+  });
+});
+
 describe('TOGGLE_TAB', () => {
   it('invokes deps.toggleTab with the given tabId', async () => {
     const { deps } = makeDeps();

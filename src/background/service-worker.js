@@ -168,7 +168,13 @@ async function handleTranslateBatch(msg, deps, sender) {
       newPairs.push({ src: item.text, dst: t });
     });
     if (newPairs.length) {
-      await Cache.putMany(deps.cacheBackend, targetLang, newPairs);
+      // 缓存写入失败（含配额超限）只降级为告警：译文照常返回并推送，
+      // 否则一次存储异常会连带丢掉本批的流式上屏
+      try {
+        await Cache.putMany(deps.cacheBackend, targetLang, newPairs);
+      } catch (e) {
+        deps.logger.warn('[LLM Page Translator] cache write failed:', String((e && e.message) || e));
+      }
     }
     if (tabId && Object.keys(batchTranslations).length) {
       try {
