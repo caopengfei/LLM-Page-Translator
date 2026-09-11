@@ -66,3 +66,49 @@ describe('resolveLimits', () => {
     expect(Cache.resolveLimits(0)).toEqual({ maxBytes: 4718592, evictToBytes: 3774873 });
   });
 });
+
+describe('backend capabilities', () => {
+  it('memory backend lists all entries, removes keys and reports bytes', async () => {
+    const backend = Cache.memoryBackend({ quotaBytes: 1000 });
+    await backend.setMany([['tc:a', { src: 'A', dst: 'B' }], ['config', { apiKey: 'k' }]]);
+    const all = await backend.getAll();
+    expect(Object.keys(all).sort()).toEqual(['config', 'tc:a']);
+    expect(await backend.bytesInUse()).toBeGreaterThan(0);
+    expect(backend.quotaBytes()).toBe(1000);
+    await backend.remove(['tc:a']);
+    expect(Object.keys(await backend.getAll())).toEqual(['config']);
+  });
+
+  it('memory backend defaults its quota to the conservative fallback', async () => {
+    expect(Cache.memoryBackend().quotaBytes()).toBe(C.CACHE_FALLBACK_QUOTA_BYTES);
+  });
+
+  it('chrome backend delegates getAll/remove and reads QUOTA_BYTES', async () => {
+    const calls = [];
+    const fakeStorage = {
+      QUOTA_BYTES: 7 * 1024 * 1024,
+      get: async (keys) => { calls.push(['get', keys]); return { k1: { src: 'A', dst: 'B' } }; },
+      set: async () => {},
+      remove: async (keys) => { calls.push(['remove', keys]); },
+      getBytesInUse: async (keys) => { calls.push(['bytes', keys]); return 321; }
+    };
+    const backend = Cache.chromeStorageBackend(fakeStorage);
+    expect(await backend.getAll()).toEqual({ k1: { src: 'A', dst: 'B' } });
+    expect(calls[0]).toEqual(['get', null]);
+    await backend.remove(['k1']);
+    expect(calls[1]).toEqual(['remove', ['k1']]);
+    expect(await backend.bytesInUse()).toBe(321);
+    expect(backend.quotaBytes()).toBe(7 * 1024 * 1024);
+  });
+
+  it('chrome backend falls back when getBytesInUse or QUOTA_BYTES is unavailable', async () => {
+    const fakeStorage = {
+      get: async () => ({ 'tc:x': { src: 'X', dst: 'Y', lang: 'zh-CN', at: 1 } }),
+      set: async () => {},
+      remove: async () => {}
+    };
+    const backend = Cache.chromeStorageBackend(fakeStorage);
+    expect(backend.quotaBytes()).toBe(C.CACHE_FALLBACK_QUOTA_BYTES);
+    expect(await backend.bytesInUse()).toBeGreaterThan(0); // 回退为按条目估算
+  });
+});
