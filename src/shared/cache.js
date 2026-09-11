@@ -97,6 +97,39 @@
     };
   }
 
+  // in-flight 闩锁：3 个批次 worker 可能同时写完触发淘汰，复用同一个 Promise 避免重复全量扫描
+  let enforcing = null;
+
+  // 容量淘汰：超过高水位时，把最旧的 tc:* 条目删到低水位为止。
+  // 只删缓存前缀，config 与其他键不在候选集内，因此 API Key 结构性不可删。
+  function enforceLimit(backend) {
+    if (enforcing) return enforcing;
+    enforcing = (async () => {
+      try {
+        const { maxBytes, evictToBytes } = resolveLimits(backend.quotaBytes ? backend.quotaBytes() : undefined);
+        const used = await backend.bytesInUse();
+        if (used <= maxBytes) return; // 正常路径：仅一次轻量字节查询
+        const all = await backend.getAll();
+        const entries = Object.keys(all)
+          .filter((k) => k.startsWith(C.STORAGE_KEYS.CACHE_PREFIX))
+          .map((k) => ({ key: k, at: Number(all[k] && all[k].at) || 0, size: entrySize(k, all[k]) }))
+          .sort((a, b) => a.at - b.at); // 最早的排最前；缺 at 视为 0
+        let total = entries.reduce((sum, e) => sum + e.size, 0);
+        if (total <= evictToBytes) return;
+        const doomed = [];
+        // 始终留最后一条（最新写入的），避免把缓存删空
+        for (let i = 0; i < entries.length - 1 && total > evictToBytes; i += 1) {
+          doomed.push(entries[i].key);
+          total -= entries[i].size;
+        }
+        if (doomed.length) await backend.remove(doomed);
+      } finally {
+        enforcing = null;
+      }
+    })();
+    return enforcing;
+  }
+
   async function getMany(backend, targetLang, texts) {
     if (!texts || !texts.length) return new Map();
     const uniq = [...new Set(texts)];
@@ -112,11 +145,13 @@
 
   async function putMany(backend, targetLang, pairs) {
     if (!pairs || !pairs.length) return;
-    const entries = pairs.map((p) => [keyFor(targetLang, p.src), { src: p.src, dst: p.dst, lang: targetLang }]);
+    const now = Date.now(); // 同批共用同一时间戳，批内顺序由数组顺序保证
+    const entries = pairs.map((p) => [keyFor(targetLang, p.src), { src: p.src, dst: p.dst, lang: targetLang, at: now }]);
     await backend.setMany(entries);
+    await enforceLimit(backend);
   }
 
-  const ExtCache = { hash64, keyFor, resolveLimits, entrySize, memoryBackend, chromeStorageBackend, getMany, putMany };
+  const ExtCache = { hash64, keyFor, resolveLimits, entrySize, memoryBackend, chromeStorageBackend, getMany, putMany, enforceLimit };
   global.Ext = global.Ext || {};
   global.Ext.cache = ExtCache;
   if (typeof module !== 'undefined' && module.exports) module.exports = ExtCache;

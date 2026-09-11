@@ -112,3 +112,76 @@ describe('backend capabilities', () => {
     expect(await backend.bytesInUse()).toBeGreaterThan(0); // 回退为按条目估算
   });
 });
+
+describe('enforceLimit (FIFO eviction)', () => {
+  const seed = (backend, specs) => backend.setMany(specs.map((s) => [Cache.keyFor('zh-CN', s.src), s]));
+
+  it('evicts the earliest-added entries down to the low watermark', async () => {
+    // quota=1000 → 高水位 900、低水位 720。每条约 250 字节 → 5 条约 1250
+    const backend = Cache.memoryBackend({ quotaBytes: 1000 });
+    const body = 'x'.repeat(200);
+    await seed(backend, [
+      { src: 'e1' + body, dst: 'A', lang: 'zh-CN', at: 1 },
+      { src: 'e2' + body, dst: 'B', lang: 'zh-CN', at: 2 },
+      { src: 'e3' + body, dst: 'C', lang: 'zh-CN', at: 3 },
+      { src: 'e4' + body, dst: 'D', lang: 'zh-CN', at: 4 },
+      { src: 'e5' + body, dst: 'E', lang: 'zh-CN', at: 5 }
+    ]);
+    await Cache.enforceLimit(backend);
+    const left = Object.values(await backend.getAll()).map((r) => r.dst).sort();
+    expect(left).toEqual(['D', 'E']); // 最旧的 e1..e3 被删，最新的保留
+    expect(await backend.bytesInUse()).toBeLessThanOrEqual(720);
+  });
+
+  it('treats a missing at as the oldest entry', async () => {
+    // quota=400 → 高水位 360、低水位 288；两条各约 270 字节 → 合计约 540，超过高水位
+    const backend = Cache.memoryBackend({ quotaBytes: 400 });
+    const body = 'x'.repeat(200);
+    await backend.setMany([
+      [Cache.keyFor('zh-CN', 'legacy' + body), { src: 'legacy' + body, dst: 'OLD', lang: 'zh-CN' }],
+      [Cache.keyFor('zh-CN', 'fresh' + body), { src: 'fresh' + body, dst: 'NEW', lang: 'zh-CN', at: 999 }]
+    ]);
+    await Cache.enforceLimit(backend);
+    const dsts = Object.values(await backend.getAll()).map((r) => r.dst);
+    expect(dsts).toEqual(['NEW']);
+  });
+
+  it('never deletes the newest entry even when it alone exceeds the low watermark', async () => {
+    const backend = Cache.memoryBackend({ quotaBytes: 100 });
+    const big = { src: 'big' + 'x'.repeat(300), dst: 'KEEP', lang: 'zh-CN', at: 1 };
+    await backend.setMany([[Cache.keyFor('zh-CN', big.src), big]]);
+    await Cache.enforceLimit(backend);
+    expect(Object.values(await backend.getAll()).map((r) => r.dst)).toEqual(['KEEP']);
+  });
+
+  it('never evicts config or other non-cache keys', async () => {
+    const backend = Cache.memoryBackend({ quotaBytes: 1000 });
+    const body = 'x'.repeat(200);
+    const config = { apiKey: 'sk-secret', baseUrl: 'https://api.test/v1' };
+    await backend.setMany([['config', config]]);
+    await seed(backend, [1, 2, 3, 4, 5].map((i) => ({ src: 'e' + i + body, dst: 'D' + i, lang: 'zh-CN', at: i })));
+    await Cache.enforceLimit(backend);
+    expect((await backend.getAll()).config).toEqual(config);
+  });
+
+  it('does nothing when under the high watermark', async () => {
+    const backend = Cache.memoryBackend({ quotaBytes: 100000 });
+    let removeCalls = 0;
+    const origRemove = backend.remove.bind(backend);
+    backend.remove = async (keys) => { removeCalls += 1; return origRemove(keys); };
+    await seed(backend, [{ src: 'small', dst: 'A', lang: 'zh-CN', at: 1 }]);
+    await Cache.enforceLimit(backend);
+    expect(removeCalls).toBe(0);
+  });
+
+  it('runs a single pass under concurrent calls (in-flight latch)', async () => {
+    const backend = Cache.memoryBackend({ quotaBytes: 1000 });
+    const body = 'x'.repeat(200);
+    await seed(backend, [1, 2, 3, 4, 5].map((i) => ({ src: 'e' + i + body, dst: 'D' + i, lang: 'zh-CN', at: i })));
+    let getAllCalls = 0;
+    const origGetAll = backend.getAll.bind(backend);
+    backend.getAll = async () => { getAllCalls += 1; return origGetAll(); };
+    await Promise.all([Cache.enforceLimit(backend), Cache.enforceLimit(backend)]);
+    expect(getAllCalls).toBe(1);
+  });
+});
