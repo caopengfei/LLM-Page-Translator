@@ -3,6 +3,7 @@ import '../src/shared/constants.js';
 import '../src/shared/cache.js';
 
 const Cache = globalThis.Ext.cache;
+const C = globalThis.EXT_CONSTANTS;
 
 describe('hash64 / keyFor', () => {
   it('is stable and collision-different for distinct texts', () => {
@@ -49,5 +50,19 @@ describe('chromeStorageBackend', () => {
     expect(got).toEqual({ k1: { src: 'A', dst: 'B' } });
     await backend.setMany([['k3', { src: 'C', dst: 'D' }]]);
     expect(calls[1]).toEqual(['set', { k3: { src: 'C', dst: 'D' } }]);
+  });
+});
+
+describe('resolveLimits', () => {
+  it('derives watermarks from the runtime quota', () => {
+    // 10MB 配额：高水位 90% = 9,437,184，低水位为其 80% = 7,549,747
+    expect(Cache.resolveLimits(10 * 1024 * 1024)).toEqual({ maxBytes: 9437184, evictToBytes: 7549747 });
+    // 5MB 配额（Chrome 114 之前）：高水位 4,718,592，低水位 3,774,873
+    expect(Cache.resolveLimits(5 * 1024 * 1024)).toEqual({ maxBytes: 4718592, evictToBytes: 3774873 });
+  });
+
+  it('falls back to the conservative quota when the value is missing', () => {
+    expect(Cache.resolveLimits(undefined)).toEqual({ maxBytes: 4718592, evictToBytes: 3774873 });
+    expect(Cache.resolveLimits(0)).toEqual({ maxBytes: 4718592, evictToBytes: 3774873 });
   });
 });

@@ -88,6 +88,11 @@
     // 并发批次数:串行等待是"翻译很久"的主因,并发后总时长约为 1/N
     BATCH_CONCURRENCY: 3,
     DEBOUNCE_MS: 500,
+    // 缓存容量水位：按运行时配额推导，不写死字节数——旧版 Chrome 的 local 配额只有 5MB，
+    // 写死 8MB 会让触发水位高于配额，淘汰永不发生、set() 照旧失败
+    CACHE_MAX_RATIO: 0.9,          // 高水位 = 配额 × 0.9（超过才触发淘汰）
+    CACHE_EVICT_RATIO: 0.8,        // 低水位 = 高水位 × 0.8（一次淘汰到此为止，留出滞后区间）
+    CACHE_FALLBACK_QUOTA_BYTES: 5 * 1024 * 1024, // QUOTA_BYTES 读不到时按最小常见配额保守兜底
     STORAGE_KEYS: { CONFIG: 'config', CACHE_PREFIX: 'tc:' },
     uiLanguage,
     pickTargetLang,

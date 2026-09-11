@@ -21,6 +21,13 @@
     return C.STORAGE_KEYS.CACHE_PREFIX + targetLang + ':' + hash64(text);
   }
 
+  // 由配额推导高/低水位。配额缺失时回退到保守兜底值，保证 5MB 配额下也能触发淘汰
+  function resolveLimits(quotaBytes) {
+    const q = Number(quotaBytes) > 0 ? Number(quotaBytes) : C.CACHE_FALLBACK_QUOTA_BYTES;
+    const maxBytes = Math.floor(q * C.CACHE_MAX_RATIO);
+    return { maxBytes, evictToBytes: Math.floor(maxBytes * C.CACHE_EVICT_RATIO) };
+  }
+
   function memoryBackend() {
     const map = new Map();
     return {
@@ -66,7 +73,7 @@
     await backend.setMany(entries);
   }
 
-  const ExtCache = { hash64, keyFor, memoryBackend, chromeStorageBackend, getMany, putMany };
+  const ExtCache = { hash64, keyFor, resolveLimits, memoryBackend, chromeStorageBackend, getMany, putMany };
   global.Ext = global.Ext || {};
   global.Ext.cache = ExtCache;
   if (typeof module !== 'undefined' && module.exports) module.exports = ExtCache;
