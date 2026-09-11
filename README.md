@@ -128,7 +128,7 @@ The page keeps three states rather than a simple boolean — "skipped because sa
 ## Cost and reliability
 
 - **De-duplication** — repeated text within a batch is requested once; source text that hits the cache across batches or sessions is read directly
-- **Cache** — keyed by "target language + source text" (FNV-1a 64-bit hash) in `chrome.storage.local`
+- **Cache** — keyed by "target language + source text" (FNV-1a 64-bit hash) in `chrome.storage.local`; the earliest-added entries are evicted once the size watermark is reached
 - **Retries** — failures are retried **2 times** with 1s / 2s backoff, **only for transient server-side problems (such as HTTP 5xx)**; timeouts and unreachable networks fail immediately so users don't wait through 3× the timeout
 - **Partial success** — when a batch fails permanently, successful batches still return and are cached, so the next click only back-fills what is missing
 
@@ -205,7 +205,7 @@ docs/superpowers/                design and implementation-plan documents (Chine
 - Clicking the toolbar icon only opens the panel; you must click "Translate this page / Restore this page" there to act
 - When the same word appears more than once inside a single text node, only the first occurrence is replaced
 - On rare sites whose scripts hold references to the original text, internal state may drift after replacement — click the icon once more to restore
-- The cache has no eviction policy (v0.1): `chrome.storage.local` is about 10MB by default, enough for tens of thousands of entries
+- The cache evicts by size: the trigger is 90% of the `chrome.storage.local` quota (about 9MB on Chrome 114+); past it, the earliest-added entries are removed until usage falls to 72%. Config and the API key are never evicted
 - Only OpenAI-compatible `/chat/completions` endpoints are supported; other translation protocols are not
 
 ---
