@@ -74,7 +74,7 @@ mode === 'translated'  → 还原
 
 因此同语言页再次点击会重新判定语言并走翻译分支，不再进入还原分支。
 
-**失败路径不改状态。** 翻译过程抛错时 `mode` 保持原值（`idle` 或 `skipped-same-language`），不置为 `translated`，用户可直接重试。这与现有实现"失败时不置 `active`"的意图一致。
+**失败路径不置为已翻译。** 一旦判定页面语言与目标语言不一致（页面确实可翻译），`mode` 归位为 `idle` 再开始翻译，避免残留上次的"语言一致"判定；翻译抛错时保持 `idle`，用户可直接重试。若判定一致则进入 `skipped-same-language`，同样不会误置为 `translated`。
 
 **幂等守卫。** `main.js` 顶部加 `globalThis.__llmPageTranslatorLoaded` 标志，重复注入时直接返回。这是为了让"重复注入产生两套状态"这一隐患从根上消失。守卫处需要注释说明原因（service worker 的注入兜底），否则后来的读者会把它当作冗余代码删掉。
 
@@ -218,3 +218,14 @@ popup 生命周期很短，本轮不做状态变化的实时推送。
 | 属性过滤名单带来额外 observer 开销 | 仅注册 4 个属性名；站点若高频改写 `title` 等，会走防抖合并，单轮最多产生一次 `TRANSLATE_BATCH` 调用（其内部再按批并发） |
 | 同语言提示由红转中性，与既有测试断言冲突 | 属预期的行为变更，测试按新语义改写（第 10 节已列出） |
 | 对账丢弃被站点改写的记录后，该节点本轮可能未被 observer 覆盖 | 改写事件本身（`characterData` / `attributes`）必然进入待处理集合，父元素/target 会在本轮被重新收集 |
+
+---
+
+## 13. 增补：字数与用时统计
+
+用户追加需求：翻译完成后在 popup 状态栏提示"本页翻译了多少文字、总共用时多久"。三个口径经确认：字数为**源文字符数**，展示位置为 **popup 状态栏**，用时为**含动态补翻的累计**。
+
+- `apply.js` 的记录新增 `srcLen`（送去翻译的源文本长度，不含首尾空白），字数只统计真实落盘的记录。
+- `main.js` 增加会话累计 `stats = { chars, ms }`：`translateRoots` 内部以 `Date.now()` 量本轮墙钟耗时并返回 `{chars, ms}`，首次整页翻译与每次 observer 动态补翻都累加（SPA 页面数字随补翻增长）；`restorePage()` 时归零。翻译成功/已翻译的响应与 `GET_STATE` 均携带 `chars` / `ms`。
+- `popup.js` 新增可测的 `formatDuration(ms)`：不足一分钟显示 "X.Y 秒"，超过则 "M 分 S 秒"。`describeResult` 与 `hintFor` 的 translated 分支追加 ",共 X 字,用时 Y 秒"；响应无统计字段时回退到原文案（兼容旧回包）。
+- 测试：`apply.test.js` 补 `srcLen`，`popup.test.js` 补 `formatDuration` 三档与带/无统计两组展示断言。
