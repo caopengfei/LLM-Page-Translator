@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import '../src/shared/i18n.js';
 import '../src/shared/batch.js';
 
 const { splitIntoBatches, buildPayload, parseResponse } = globalThis.Ext.batch;
@@ -57,5 +58,24 @@ describe('parseResponse', () => {
     expect(() => parseResponse('not json')).toThrow();
     expect(() => parseResponse('["a"]')).toThrow();
     expect(() => parseResponse('null')).toThrow();
+  });
+
+  it('tolerates trailing commas (common LLM slip)', () => {
+    expect(parseResponse('{"0":"你好",}')).toEqual({ '0': '你好' });
+    expect(parseResponse('{"0":"你好","1":"世界",}')).toEqual({ '0': '你好', '1': '世界' });
+  });
+
+  it('extracts JSON embedded among explanatory text (no fences)', () => {
+    expect(parseResponse('Sure, here is the translation: {"0":"你好"}')).toEqual({ '0': '你好' });
+  });
+
+  it('reports a readable error containing the response snippet on malformed JSON', () => {
+    let caught = null;
+    try { parseResponse('{"0":"你好","1": }'); } catch (err) { caught = err; }
+    expect(caught).not.toBeNull();
+    expect(caught.message).toContain('not valid JSON');
+    expect(caught.message).toContain('Raw response fragment');
+    // 确实带上原始片段,便于排查
+    expect(caught.message).toContain('{"0":"你好","1": }');
   });
 });

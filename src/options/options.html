@@ -2,42 +2,93 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>LLM Page Translator — Settings</title>
+  <title>LLM Page Translator</title>
+  <link rel="stylesheet" href="../shared/theme.css">
   <link rel="stylesheet" href="options.css">
 </head>
 <body>
-  <h1>LLM Page Translator</h1>
-  <form id="options-form">
-    <label>API Base URL
-      <input name="baseUrl" type="url" placeholder="https://api.openai.com/v1" required>
-    </label>
-    <label>API Key
-      <input name="apiKey" type="password" autocomplete="off" required>
-    </label>
-    <label>Model
-      <input name="model" type="text" placeholder="gpt-4o-mini" required>
-    </label>
-    <label>Target language
-      <select name="targetLang">
-        <option value="zh-CN">简体中文</option>
-        <option value="zh-TW">繁體中文</option>
-        <option value="en">English</option>
-        <option value="ja">日本語</option>
-        <option value="ko">한국어</option>
-        <option value="de">Deutsch</option>
-        <option value="fr">Français</option>
-        <option value="es">Español</option>
-        <option value="ru">Русский</option>
-      </select>
-    </label>
-    <div class="actions">
-      <button type="submit" id="save">Save</button>
-      <button type="button" id="test">Test connection</button>
-      <span id="status"></span>
+  <div class="page">
+    <header class="hero">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="2" y1="12" x2="22" y2="12"/>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+        </svg>
+      </span>
+      <div>
+        <h1>LLM Page Translator</h1>
+        <p data-i18n="options_subtitle"></p>
+      </div>
+    </header>
+
+    <form id="options-form">
+      <section class="card">
+        <div class="card-head">
+          <h2 data-i18n="options_section_api"></h2>
+          <p data-i18n="options_section_api_desc"></p>
+        </div>
+        <div class="grid">
+          <label class="field">
+            <span class="field-label">API Base URL</span>
+            <input name="baseUrl" type="url" placeholder="https://api.openai.com/v1" required>
+          </label>
+          <label class="field">
+            <span class="field-label">API Key</span>
+            <input name="apiKey" type="password" autocomplete="off" placeholder="sk-…" required>
+          </label>
+          <label class="field">
+            <span class="field-label">Model</span>
+            <input name="model" type="text" placeholder="gpt-4o-mini" required>
+          </label>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2 data-i18n="options_section_prefs"></h2>
+          <p data-i18n="options_section_prefs_desc"></p>
+        </div>
+        <div class="grid grid-2">
+          <label class="field">
+            <span class="field-label" data-i18n="options_field_target_language"></span>
+            <select name="targetLang"></select>
+          </label>
+          <label class="field">
+            <span class="field-label" data-i18n="options_field_timeout"></span>
+            <input name="timeoutSec" type="number" min="5" step="5" placeholder="120">
+          </label>
+        </div>
+      </section>
+
+      <div class="actions">
+        <button type="submit" id="save" class="btn btn-primary">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+            <polyline points="17 21 17 13 7 13 7 21"/>
+            <polyline points="7 3 7 8 15 8"/>
+          </svg>
+          <span data-i18n="options_save"></span>
+        </button>
+        <button type="button" id="test" class="btn btn-ghost">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+            <polyline points="22 4 12 14.01 9 11.01"/>
+          </svg>
+          <span data-i18n="options_test"></span>
+        </button>
+        <span id="status" role="status" aria-live="polite"></span>
+      </div>
+    </form>
+
+    <div class="hints">
+      <p class="hint" data-i18n-html="options_hint_base_url"></p>
+      <p class="hint" data-i18n-html="options_hint_timeout"></p>
     </div>
-  </form>
-  <p class="hint">Works with any OpenAI-compatible /chat/completions endpoint (OpenAI, DeepSeek, Qwen, Ollama…). The key is stored only in your browser (chrome.storage.local).</p>
+  </div>
+
   <script src="../shared/constants.js"></script>
+  <script src="../shared/i18n.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

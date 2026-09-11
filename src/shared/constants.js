@@ -1,22 +1,97 @@
 (function (global) {
   'use strict';
+
+  // 浏览器 UI 语言(如 'zh-CN'、'en-US')。非扩展环境/无该 API 时返回空串,
+  // 让调用方走兜底分支,测试里因此保持确定性
+  function uiLanguage() {
+    try {
+      if (typeof chrome !== 'undefined' && chrome && chrome.i18n &&
+        typeof chrome.i18n.getUILanguage === 'function') {
+        return chrome.i18n.getUILanguage() || '';
+      }
+    } catch (e) { /* 读取失败按未知语言处理 */ }
+    return '';
+  }
+
+  // 把浏览器 UI 语言映射到受支持的目标语言:先精确匹配,再按主语言子标签匹配。
+  // 中文需要区分简繁(zh-Hant/zh-TW/zh-HK → zh-TW),其余语言直接取主标签(es-419 → es)。
+  function pickTargetLang(rawUiLang, fallback) {
+    const raw = String(rawUiLang || '').replace(/_/g, '-').toLowerCase();
+    if (!raw) return fallback;
+    const codes = EXT_CONSTANTS.LANGUAGES.map((l) => l.code);
+    const exact = codes.find((c) => c.toLowerCase() === raw);
+    if (exact) return exact;
+    const primary = raw.split('-')[0];
+    if (primary === 'zh') return /hant|tw|hk|mo/.test(raw) ? 'zh-TW' : 'zh-CN';
+    return codes.find((c) => c.toLowerCase() === primary) || fallback;
+  }
+
+  // 首次使用(用户尚未选择过目标语言)时的默认值
+  function defaultTargetLang() {
+    return pickTargetLang(uiLanguage(), EXT_CONSTANTS.DEFAULT_CONFIG.targetLang);
+  }
+
   const EXT_CONSTANTS = {
     MSG: {
       TOGGLE: 'TOGGLE',
+      TOGGLE_TAB: 'TOGGLE_TAB',
+      GET_STATE: 'GET_STATE',
       TRANSLATE_BATCH: 'TRANSLATE_BATCH',
       DETECT_LANGUAGE: 'DETECT_LANGUAGE',
-      TEST_CONNECTION: 'TEST_CONNECTION'
+      TEST_CONNECTION: 'TEST_CONNECTION',
+      // background 按批推送译文给 content:每批完成即发,不等全部批次返回
+      RESULT_BATCH: 'RESULT_BATCH'
+    },
+    // 页面翻译状态。取代早先的 active 布尔值:同语言跳过必须与"已翻译"区分开,
+    // 否则再次点击会走进还原分支并提示"已还原 0 处"
+    STATE: {
+      IDLE: 'idle',
+      TRANSLATED: 'translated',
+      SKIPPED_SAME_LANGUAGE: 'skipped-same-language'
     },
     DEFAULT_CONFIG: {
       baseUrl: 'https://api.openai.com/v1',
       apiKey: '',
       model: 'gpt-4o-mini',
-      targetLang: 'zh-CN'
+      // 最后兜底值。首次使用按浏览器 UI 语言推导(defaultTargetLang),
+      // 推导不出来时用 en,而不是写死 zh-CN——否则非中文用户会把整页翻成看不懂的中文
+      targetLang: 'en',
+      // 单次请求超时。翻译负载远大于 Test connection 的探测请求,
+      // 30s 对真实批次偏短(自建/慢模型常见),默认放宽到 120s 并允许设置页调整
+      timeoutMs: 120000
     },
-    BATCH_MAX_ITEMS: 50,
-    BATCH_MAX_CHARS: 2000,
+    // 目标语言清单:popup 与 options 页共用同一份,保证两处可选项一致。
+    // label 一律用该语言的母语自称(English / 日本語 / Deutsch…),语言选择器不随界面语言翻译
+    LANGUAGES: [
+      { code: 'zh-CN', label: '简体中文' },
+      { code: 'zh-TW', label: '繁體中文' },
+      { code: 'en', label: 'English' },
+      { code: 'ja', label: '日本語' },
+      { code: 'ko', label: '한국어' },
+      { code: 'de', label: 'Deutsch' },
+      { code: 'fr', label: 'Français' },
+      { code: 'es', label: 'Español' },
+      { code: 'ru', label: 'Русский' },
+      { code: 'pt', label: 'Português' },
+      { code: 'it', label: 'Italiano' },
+      { code: 'ar', label: 'العربية' },
+      { code: 'hi', label: 'हिन्दी' },
+      { code: 'vi', label: 'Tiếng Việt' },
+      { code: 'th', label: 'ไทย' },
+      { code: 'nl', label: 'Nederlands' },
+      { code: 'pl', label: 'Polski' },
+      { code: 'tr', label: 'Türkçe' }
+    ],
+    // 批次上限:调小让单次请求更快返回(慢接口下单批耗时随文本量线性增长)
+    BATCH_MAX_ITEMS: 8,
+    BATCH_MAX_CHARS: 400,
+    // 并发批次数:串行等待是"翻译很久"的主因,并发后总时长约为 1/N
+    BATCH_CONCURRENCY: 3,
     DEBOUNCE_MS: 500,
-    STORAGE_KEYS: { CONFIG: 'config', CACHE_PREFIX: 'tc:' }
+    STORAGE_KEYS: { CONFIG: 'config', CACHE_PREFIX: 'tc:' },
+    uiLanguage,
+    pickTargetLang,
+    defaultTargetLang
   };
   global.EXT_CONSTANTS = EXT_CONSTANTS;
   if (typeof module !== 'undefined' && module.exports) module.exports = EXT_CONSTANTS;

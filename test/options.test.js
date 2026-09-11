@@ -1,14 +1,17 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import '../src/shared/constants.js';
+import '../src/shared/i18n.js';
 import '../src/options/options.js';
 
 const Options = globalThis.Ext.options;
+const C = globalThis.EXT_CONSTANTS;
 
 beforeEach(() => {
   document.body.innerHTML = `
     <form id="options-form">
       <input name="baseUrl"><input name="apiKey"><input name="model">
       <select name="targetLang"><option value="zh-CN">简体中文</option><option value="en">English</option></select>
+      <input name="timeoutSec">
     </form>`;
 });
 
@@ -65,6 +68,53 @@ describe('saveConfigFrom', () => {
     const res = await Options.saveConfigFrom(f, storage);
     expect(res.ok).toBe(true);
     expect(writes[0].config.apiKey).toBe('sk-1');
+  });
+});
+
+describe('timeout field (seconds ↔ config.timeoutMs)', () => {
+  it('stores timeoutMs on save and formats it back into the form', async () => {
+    const writes = [];
+    const storage = { set: async (obj) => writes.push(obj) };
+    const f = form();
+    f.elements.baseUrl.value = 'https://api.test/v1';
+    f.elements.apiKey.value = 'sk-1';
+    f.elements.model.value = 'm1';
+    f.elements.targetLang.value = 'zh-CN';
+    f.elements.timeoutSec.value = '45';
+    const res = await Options.saveConfigFrom(f, storage);
+    expect(res.ok).toBe(true);
+    expect(writes[0].config.timeoutMs).toBe(45000);
+
+    f.elements.timeoutSec.value = '';
+    Options.fillForm(f, writes[0].config);
+    expect(f.elements.timeoutSec.value).toBe('45');
+  });
+
+  it('falls back to the default timeout when the field is blank or invalid', async () => {
+    const writes = [];
+    const storage = { set: async (obj) => writes.push(obj) };
+    const f = form();
+    f.elements.baseUrl.value = 'https://api.test/v1';
+    f.elements.apiKey.value = 'sk-1';
+    f.elements.model.value = 'm1';
+    f.elements.targetLang.value = 'zh-CN';
+    f.elements.timeoutSec.value = 'abc';
+    await Options.saveConfigFrom(f, storage);
+    expect('timeoutMs' in writes[0].config).toBe(false); // 交给 DEFAULT_CONFIG 兜底
+
+    Options.fillForm(f, {});
+    expect(Number(f.elements.timeoutSec.value)).toBe(120); // 默认 120 秒
+  });
+});
+
+describe('language list', () => {
+  it('populates the target language select from the shared list', () => {
+    const sel = form().elements.targetLang;
+    sel.innerHTML = ''; // 清掉 beforeEach 里预设的两个占位选项
+    Options.populateLanguages(sel);
+    expect(sel.options.length).toBe(C.LANGUAGES.length);
+    expect(Array.from(sel.options).map((o) => o.value)).toEqual(C.LANGUAGES.map((l) => l.code));
+    expect(sel.options[0].textContent).toBe(C.LANGUAGES[0].label);
   });
 });
 

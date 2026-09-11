@@ -1,7 +1,79 @@
-body { font-family: system-ui, sans-serif; margin: 24px auto; max-width: 480px; }
-label { display: block; margin: 12px 0; }
-input, select { display: block; width: 100%; box-sizing: border-box; padding: 6px; margin-top: 4px; }
-.actions { display: flex; gap: 8px; align-items: center; margin-top: 16px; }
-#status.ok { color: #0a7a0a; }
-#status.error { color: #b00020; }
-.hint { color: #666; font-size: 13px; }
+/* Options page layout — tokens & primitives come from ../shared/theme.css */
+
+body {
+  min-height: 100vh;
+  padding: 44px 20px 72px;
+  background:
+    radial-gradient(900px 520px at 100% -8%, var(--accent-soft), transparent 62%),
+    radial-gradient(700px 420px at -10% 110%, var(--info-soft), transparent 60%),
+    var(--bg);
+}
+
+.page { max-width: 660px; margin: 0 auto; }
+
+.hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 26px;
+}
+.hero .brand-mark { width: 46px; height: 46px; border-radius: 13px; }
+.hero .brand-mark svg { width: 24px; height: 24px; }
+.hero h1 { font-size: 22px; font-weight: 750; letter-spacing: -0.02em; }
+.hero p { margin-top: 4px; font-size: 13px; color: var(--muted); }
+
+.card {
+  margin-bottom: 18px;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-2);
+}
+
+.card-head { margin-bottom: 18px; }
+.card-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.card-head h2::before {
+  content: "";
+  width: 3px;
+  height: 15px;
+  border-radius: 2px;
+  background: linear-gradient(var(--accent-2), var(--accent));
+}
+.card-head p { margin-top: 7px; font-size: 12px; line-height: 1.6; color: var(--muted); }
+
+.grid { display: grid; gap: 14px; }
+.grid-2 { grid-template-columns: 1fr 1fr; }
+@media (max-width: 560px) { .grid-2 { grid-template-columns: 1fr; } }
+
+.actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 4px 0 24px;
+}
+.actions #status { margin-left: 2px; }
+
+.hints { display: grid; gap: 10px; }
+.hints .hint {
+  padding: 12px 15px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--ink-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: var(--shadow-1);
+}
+.hints .hint b { color: var(--ink); font-weight: 650; }

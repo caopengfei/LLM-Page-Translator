@@ -71,6 +71,12 @@ describe('collect', () => {
   });
 });
 
+describe('ATTR_NAMES', () => {
+  it('exposes the translatable attribute allowlist for the observer filter', () => {
+    expect(Collect.ATTR_NAMES).toEqual(['placeholder', 'title', 'aria-label', 'alt']);
+  });
+});
+
 describe('collectMany', () => {
   it('assigns globally unique ids across multiple roots (no per-root i0 collision)', () => {
     document.body.innerHTML = '<div id="a">Alpha</div><div id="b">Bravo</div><div id="c">Charlie</div>';

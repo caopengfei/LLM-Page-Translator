@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import '../src/shared/constants.js';
 import '../src/shared/cache.js';
 import '../src/background/service-worker.js';
@@ -6,6 +6,9 @@ import '../src/background/service-worker.js';
 const C = globalThis.EXT_CONSTANTS;
 const Cache = globalThis.Ext.cache;
 const makeMessageHandler = globalThis.Ext.sw.makeMessageHandler;
+
+// 静默 logger:请求/响应日志的断言在 llm.test.js,这里只要不污染测试输出
+const silentLogger = { log() {}, warn() {} };
 
 function makeDeps() {
   const store = new Map();
@@ -17,7 +20,7 @@ function makeDeps() {
   };
   const cacheBackend = Cache.memoryBackend();
   const fetchCalls = [];
-  const okJson = (obj) => ({ ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(obj) } }] }), text: async () => '' });
+  const okJson = (obj) => ({ ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify(obj) } }] }) });
   const fetchImpl = async (url, opts) => {
     fetchCalls.push({ url, opts });
     return okJson({ '0': '你好' });
@@ -26,6 +29,7 @@ function makeDeps() {
     configStorage,
     cacheBackend,
     fetchImpl,
+    logger: silentLogger,
     detectLanguage: async () => 'en',
     sleep: async () => {}
   };
@@ -72,7 +76,7 @@ describe('TRANSLATE_BATCH', () => {
     deps.fetchImpl = async () => {
       n += 1;
       if (n <= 2) return { ok: false, status: 500, text: async () => 'boom' };
-      return { ok: true, json: async () => ({ choices: [{ message: { content: '{"0":"你好"}' } }] }), text: async () => '' };
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: '{"0":"你好"}' } }] }) };
     };
     const handler = makeMessageHandler(deps);
     const res = await handler({ type: C.MSG.TRANSLATE_BATCH, items: [{ id: 'a', text: 'Hello' }], targetLang: 'zh-CN' });
@@ -89,19 +93,66 @@ describe('TRANSLATE_BATCH', () => {
     expect(typeof res.error).toBe('string');
   });
 
+  it('does not retry when the request times out (unreachable endpoint)', async () => {
+    const { deps } = makeDeps();
+    let calls = 0;
+    deps.fetchImpl = async () => {
+      calls += 1;
+      const err = new Error('请求超时(10ms,无响应): https://api.test/v1/chat/completions');
+      err.code = 'TIMEOUT';
+      throw err;
+    };
+    const handler = makeMessageHandler(deps);
+    const res = await handler({ type: C.MSG.TRANSLATE_BATCH, items: [{ id: 'a', text: 'Hello' }], targetLang: 'zh-CN' });
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('请求超时');
+    expect(calls).toBe(1); // 超时不重试
+  });
+
+  it('does not retry on network errors either', async () => {
+    const { deps } = makeDeps();
+    let calls = 0;
+    deps.fetchImpl = async () => {
+      calls += 1;
+      const err = new Error('请求失败: https://api.test/v1/chat/completions — Failed to fetch');
+      err.code = 'NETWORK';
+      throw err;
+    };
+    const res = await makeMessageHandler(deps)({
+      type: C.MSG.TRANSLATE_BATCH, items: [{ id: 'a', text: 'Hello' }], targetLang: 'zh-CN'
+    });
+    expect(res.ok).toBe(false);
+    expect(calls).toBe(1);
+  });
+
+  it('still retries transient server errors (HTTP 5xx)', async () => {
+    const { deps } = makeDeps();
+    let calls = 0;
+    deps.fetchImpl = async () => {
+      calls += 1;
+      if (calls <= 2) return { ok: false, status: 503, text: async () => 'unavailable' };
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: '{"0":"你好"}' } }] }) };
+    };
+    const res = await makeMessageHandler(deps)({
+      type: C.MSG.TRANSLATE_BATCH, items: [{ id: 'a', text: 'Hello' }], targetLang: 'zh-CN'
+    });
+    expect(res.ok).toBe(true);
+    expect(calls).toBe(3); // 5xx 仍然重试
+  });
+
   it('caches and returns earlier batches when a later batch permanently fails', async () => {
     const { deps, fetchCalls, cacheBackend, okJson } = makeDeps();
     deps.fetchImpl = async (url, opts) => {
       const payload = JSON.parse(JSON.parse(opts.body).messages[1].content); // user 消息里的翻译 payload
       // 批 1:单条 1100 字符文本(FIRST...);批 2:另一条 1100 字符文本(SECOND...)
-      // 批 2 重试 3 次全部失败 → 该批次永久失败,批 1 已缓存并返回
+      // 批 2 重试 3 次全部失败 → 该批次永久失败,批 1 已缓存并返回(部分结果)
       if (payload['0'] && payload['0'].startsWith('FIRST')) {
         return okJson({ '0': 'FIRST_OK' });
       }
       fetchCalls.push({ url, opts });
       return { ok: false, status: 500, text: async () => 'boom' };
     };
-    // 两条各 1100 字符:1100 + 1100 = 2200 > 2000(BATCH_MAX_CHARS)→ 拆成两批
+    // 两条各 1100 字符,均超过 BATCH_MAX_CHARS → 各自成批
     const longA = 'FIRST' + 'x'.repeat(1095);
     const longB = 'SECOND' + 'y'.repeat(1094);
     const handler = makeMessageHandler(deps);
@@ -113,21 +164,16 @@ describe('TRANSLATE_BATCH', () => {
     expect(res.ok).toBe(true);
     expect(res.translations.a).toBe('FIRST_OK');
     expect('b' in res.translations).toBe(false); // 批 2 失败,未翻译
+    expect(res.partial).toBe(true); // 标记为部分结果
     expect(fetchCalls.length).toBe(3); // 批 2:初始 + 2 次重试
     // 批 1 的译文已写入缓存
     const cached = await Cache.getMany(cacheBackend, 'zh-CN', [longA]);
     expect(cached.get(longA)).toBe('FIRST_OK');
   });
 
-  it('keeps ok:false when the first batch fails (no partial results to return)', async () => {
-    const { deps, okJson } = makeDeps();
-    deps.fetchImpl = async (url, opts) => {
-      const payload = JSON.parse(JSON.parse(opts.body).messages[1].content);
-      if (payload['0'] && payload['0'].startsWith('FIRST')) {
-        return { ok: false, status: 500, text: async () => 'boom' };
-      }
-      return okJson({ '0': 'SECOND_OK' });
-    };
+  it('returns ok:false only when every batch fails', async () => {
+    const { deps } = makeDeps();
+    deps.fetchImpl = async () => ({ ok: false, status: 500, text: async () => 'boom' });
     const longA = 'FIRST' + 'x'.repeat(1095);
     const longB = 'SECOND' + 'y'.repeat(1094);
     const handler = makeMessageHandler(deps);
@@ -136,8 +182,34 @@ describe('TRANSLATE_BATCH', () => {
       items: [{ id: 'a', text: longA }, { id: 'b', text: longB }],
       targetLang: 'zh-CN'
     });
-    expect(res.ok).toBe(false); // 首批失败,维持 ok:false 契约
+    expect(res.ok).toBe(false);
     expect(typeof res.error).toBe('string');
+  });
+
+  it('runs batches concurrently up to BATCH_CONCURRENCY', async () => {
+    const { deps } = makeDeps();
+    let active = 0;
+    let maxActive = 0;
+    deps.fetchImpl = async (url, opts) => {
+      const payload = JSON.parse(JSON.parse(opts.body).messages[1].content);
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((r) => setTimeout(r, 5)); // 让并发窗口重叠
+      active -= 1;
+      const out = {};
+      Object.keys(payload).forEach((k) => { out[k] = 'T:' + payload[k]; });
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify(out) } }] }) };
+    };
+    // 9 条各 200 字符、互不相同 → 每批 2 条(2×200=400)→ 5 批,并发上限 3
+    const items = Array.from({ length: 9 }, (_, i) => ({
+      id: 'i' + i,
+      text: 'z'.repeat(199) + String.fromCharCode(97 + i)
+    }));
+    const res = await makeMessageHandler(deps)({ type: C.MSG.TRANSLATE_BATCH, items, targetLang: 'zh-CN' });
+    expect(res.ok).toBe(true);
+    expect(Object.keys(res.translations).length).toBe(9);
+    expect(maxActive).toBeGreaterThan(1); // 确实并发(而非串行)
+    expect(maxActive).toBeLessThanOrEqual(3); // 不超过上限
   });
 });
 
@@ -163,7 +235,7 @@ describe('DETECT_LANGUAGE / TEST_CONNECTION', () => {
     deps.fetchImpl = async () => {
       n += 1;
       if (n === 1) return { ok: false, status: 500, text: async () => 'boom' };
-      return { ok: true, json: async () => ({ choices: [{ message: { content: '{"0":"你好"}' } }] }), text: async () => '' };
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: '{"0":"你好"}' } }] }) };
     };
     const handler = makeMessageHandler(deps);
     const res = await handler({ type: C.MSG.TEST_CONNECTION, config: { baseUrl: 'https://x/v1', apiKey: 'k', model: 'm', targetLang: 'zh-CN' } });
@@ -176,5 +248,223 @@ describe('DETECT_LANGUAGE / TEST_CONNECTION', () => {
     const handler = makeMessageHandler(deps);
     const res = await handler({ type: 'NOPE' });
     expect(res.ok).toBe(false);
+  });
+});
+
+describe('streaming batch results to the tab', () => {
+  it('pushes each batch translation to the tab as it completes, then returns the full result', async () => {
+    const { deps } = makeDeps();
+    const pushed = [];
+    deps.sendToTab = async (tabId, msg) => { pushed.push({ tabId, msg }); };
+    // 两条各 1100 字符 → 各自成批,共 2 批
+    const longA = 'FIRST' + 'x'.repeat(1095);
+    const longB = 'SECOND' + 'y'.repeat(1094);
+    const handler = makeMessageHandler(deps);
+    const res = await handler(
+      { type: C.MSG.TRANSLATE_BATCH, items: [{ id: 'a', text: longA }, { id: 'b', text: longB }], targetLang: 'zh-CN' },
+      { tab: { id: 7 } }
+    );
+    expect(res.ok).toBe(true);
+    expect(res.translations.a).toBe('你好');
+    expect(res.translations.b).toBe('你好');
+    expect(pushed.length).toBe(2); // 每批一条推送
+    pushed.forEach((p) => {
+      expect(p.tabId).toBe(7);
+      expect(p.msg.type).toBe(C.MSG.RESULT_BATCH);
+      expect(typeof p.msg.translations).toBe('object');
+    });
+    // 推送覆盖所有原文 id(a、b),且与最终响应一致(与批次完成顺序无关)
+    expect(pushed.flatMap((p) => Object.keys(p.msg.translations)).sort()).toEqual(['a', 'b']);
+    const pushedMap = Object.fromEntries(pushed.flatMap((p) => Object.entries(p.msg.translations)));
+    expect(pushedMap).toEqual(res.translations);
+  });
+
+  it('pushes nothing when the caller is not a tab (e.g. direct handler calls)', async () => {
+    const { deps } = makeDeps();
+    const pushed = [];
+    deps.sendToTab = async (tabId, msg) => { pushed.push({ tabId, msg }); };
+    const handler = makeMessageHandler(deps);
+    const res = await handler({
+      type: C.MSG.TRANSLATE_BATCH, items: [{ id: 'a', text: 'Hello' }], targetLang: 'zh-CN'
+    });
+    expect(res.ok).toBe(true);
+    expect(pushed.length).toBe(0); // 无 sender.tab → 不推送,保持原有整包返回
+  });
+
+  it('still pushes the successful batch when another batch fails permanently', async () => {
+    const { deps } = makeDeps();
+    const pushed = [];
+    deps.sendToTab = async (tabId, msg) => { pushed.push(msg); };
+    deps.fetchImpl = async (url, opts) => {
+      const payload = JSON.parse(JSON.parse(opts.body).messages[1].content);
+      if (payload['0'] && payload['0'].startsWith('FIRST')) {
+        return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: '{"0":"FIRST_OK"}' } }] }) };
+      }
+      return { ok: false, status: 500, text: async () => 'boom' };
+    };
+    const longA = 'FIRST' + 'x'.repeat(1095);
+    const longB = 'SECOND' + 'y'.repeat(1094);
+    const handler = makeMessageHandler(deps);
+    const res = await handler(
+      { type: C.MSG.TRANSLATE_BATCH, items: [{ id: 'a', text: longA }, { id: 'b', text: longB }], targetLang: 'zh-CN' },
+      { tab: { id: 9 } }
+    );
+    expect(res.ok).toBe(true);
+    expect(res.partial).toBe(true);
+    expect(res.translations.a).toBe('FIRST_OK');
+    expect(pushed.map((m) => m.translations)).toEqual([{ a: 'FIRST_OK' }]);
+  });
+});
+
+describe('TOGGLE_TAB', () => {
+  it('invokes deps.toggleTab with the given tabId', async () => {
+    const { deps } = makeDeps();
+    const seen = [];
+    deps.toggleTab = async (tabId) => { seen.push(tabId); };
+    const handler = makeMessageHandler(deps);
+    expect(await handler({ type: C.MSG.TOGGLE_TAB, tabId: 42 })).toEqual({ ok: true });
+    expect(seen).toEqual([42]);
+  });
+
+  it('returns ok:false when tabId is missing or not a number', async () => {
+    const { deps } = makeDeps();
+    let called = false;
+    deps.toggleTab = async () => { called = true; };
+    const handler = makeMessageHandler(deps);
+    expect((await handler({ type: C.MSG.TOGGLE_TAB })).ok).toBe(false);
+    expect((await handler({ type: C.MSG.TOGGLE_TAB, tabId: '7' })).ok).toBe(false);
+    expect(called).toBe(false);
+  });
+
+  it('passes through the structured result returned by content scripts', async () => {
+    const { deps } = makeDeps();
+    deps.toggleTab = async () => ({ ok: true, reason: 'translated', translated: 12 });
+    const handler = makeMessageHandler(deps);
+    expect(await handler({ type: C.MSG.TOGGLE_TAB, tabId: 1 }))
+      .toEqual({ ok: true, reason: 'translated', translated: 12 });
+  });
+
+  it('propagates a content-side skip result (e.g. same language)', async () => {
+    const { deps } = makeDeps();
+    deps.toggleTab = async () => ({ ok: false, reason: 'same-language', message: '页面语言是 zh,与目标语言 zh-CN 一致,未翻译' });
+    const res = await makeMessageHandler(deps)({ type: C.MSG.TOGGLE_TAB, tabId: 1 });
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe('same-language');
+    expect(res.message).toContain('一致');
+  });
+
+  it('surfaces toggleTab failures as ok:false with the error message', async () => {
+    const { deps } = makeDeps();
+    deps.toggleTab = async () => { throw new Error('Content script is not available on this page'); };
+    const handler = makeMessageHandler(deps);
+    const res = await handler({ type: C.MSG.TOGGLE_TAB, tabId: 1 });
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('not available');
+  });
+});
+
+describe('GET_STATE', () => {
+  it('passes through the state payload returned by the content script', async () => {
+    const { deps } = makeDeps();
+    const seen = [];
+    deps.queryState = async (tabId) => {
+      seen.push(tabId);
+      return { ok: true, state: C.STATE.TRANSLATED, translated: 3 };
+    };
+    const res = await makeMessageHandler(deps)({ type: C.MSG.GET_STATE, tabId: 5 });
+    expect(res).toEqual({ ok: true, state: C.STATE.TRANSLATED, translated: 3 });
+    expect(seen).toEqual([5]);
+  });
+
+  it('reports idle when no content script is present, without injecting anything', async () => {
+    const { deps } = makeDeps();
+    deps.queryState = async () => { throw new Error('Could not establish connection. Receiving end does not exist.'); };
+    const res = await makeMessageHandler(deps)({ type: C.MSG.GET_STATE, tabId: 5 });
+    expect(res).toEqual({ ok: true, state: C.STATE.IDLE, translated: 0 });
+  });
+
+  it('requires a numeric tabId', async () => {
+    const { deps } = makeDeps();
+    let called = false;
+    deps.queryState = async () => { called = true; };
+    const handler = makeMessageHandler(deps);
+    expect((await handler({ type: C.MSG.GET_STATE })).ok).toBe(false);
+    expect((await handler({ type: C.MSG.GET_STATE, tabId: '5' })).ok).toBe(false);
+    expect(called).toBe(false);
+  });
+
+  it('default queryState never injects content scripts', async () => {
+    let sendCount = 0;
+    vi.stubGlobal('chrome', {
+      tabs: { sendMessage: async () => { sendCount += 1; throw new Error('no receiver'); } }
+    });
+    const res = await makeMessageHandler({
+      configStorage: { get: async () => ({}) },
+      cacheBackend: Cache.memoryBackend(),
+      fetchImpl: async () => { throw new Error('unused'); },
+      logger: silentLogger,
+      detectLanguage: async () => 'en',
+      sleep: async () => {}
+    })({ type: C.MSG.GET_STATE, tabId: 9 });
+    expect(res).toEqual({ ok: true, state: C.STATE.IDLE, translated: 0 });
+    expect(sendCount).toBe(1);
+    vi.unstubAllGlobals();
+  });
+});
+
+// 默认实现 defaultToggleTab 依赖 chrome.tabs / chrome.scripting(用 stub 验证兜底路径)
+describe('default toggleTab (chrome stubs)', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  function bareHandler() {
+    return makeMessageHandler({
+      configStorage: { get: async () => ({}) },
+      cacheBackend: Cache.memoryBackend(),
+      fetchImpl: async () => { throw new Error('unused'); },
+      logger: silentLogger,
+      detectLanguage: async () => 'en',
+      sleep: async () => {}
+    });
+  }
+
+  it('sends TOGGLE straight to the tab when the content script is present', async () => {
+    const sent = [];
+    const inject = vi.fn();
+    vi.stubGlobal('chrome', {
+      tabs: { sendMessage: async (tabId, msg) => { sent.push([tabId, msg]); } },
+      scripting: { executeScript: inject }
+    });
+    const res = await bareHandler()({ type: C.MSG.TOGGLE_TAB, tabId: 3 });
+    expect(res).toEqual({ ok: true });
+    expect(sent).toEqual([[3, { type: C.MSG.TOGGLE }]]);
+    expect(inject).not.toHaveBeenCalled();
+  });
+
+  it('injects content scripts then retries TOGGLE when the content script is missing', async () => {
+    let sendCount = 0;
+    const injectedFiles = [];
+    vi.stubGlobal('chrome', {
+      tabs: {
+        sendMessage: async () => {
+          sendCount += 1;
+          if (sendCount === 1) throw new Error('Could not establish connection. Receiving end does not exist.');
+        }
+      },
+      scripting: { executeScript: async (opts) => { injectedFiles.push(...opts.files); } }
+    });
+    const res = await bareHandler()({ type: C.MSG.TOGGLE_TAB, tabId: 9 });
+    expect(res).toEqual({ ok: true });
+    expect(sendCount).toBe(2); // 首次失败 → 注入后重发
+    expect(injectedFiles[injectedFiles.length - 1]).toBe('src/content/main.js');
+  });
+
+  it('reports ok:false when injection is unavailable', async () => {
+    vi.stubGlobal('chrome', {
+      tabs: { sendMessage: async () => { throw new Error('no receiver'); } }
+      // 无 chrome.scripting → 无法注入
+    });
+    const res = await bareHandler()({ type: C.MSG.TOGGLE_TAB, tabId: 9 });
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('not available');
   });
 });

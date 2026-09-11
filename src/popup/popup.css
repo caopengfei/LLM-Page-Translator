@@ -1,0 +1,68 @@
+/* Popup layout — tokens & primitives come from ../shared/theme.css */
+
+body { width: 300px; background: var(--bg); }
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 13px 12px;
+  background:
+    radial-gradient(130% 160% at 0% -20%, var(--accent-soft), transparent 62%),
+    var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand-text { flex: 1; min-width: 0; }
+.brand-text h1 {
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.brand-text p {
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.popup-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 13px;
+}
+
+#toggle { width: 100%; padding: 12px 16px; font-size: 13.5px; }
+.btn-icon { display: inline-flex; }
+.btn-icon svg { width: 16px; height: 16px; }
+.i-restore { display: none; }
+
+/* Restore is the "undo" affordance: swap to an ink button + rotate glyph */
+#toggle[data-state="translated"] {
+  color: #fff;
+  background: linear-gradient(180deg, #3a4762, #222f45);
+  box-shadow: 0 5px 14px rgba(20, 30, 48, 0.30);
+}
+#toggle[data-state="translated"]:hover { filter: brightness(1.1); }
+#toggle[data-state="translated"] .i-translate { display: none; }
+#toggle[data-state="translated"] .i-restore { display: block; }
+
+@media (prefers-color-scheme: dark) {
+  #toggle[data-state="translated"] {
+    color: var(--ink);
+    background: linear-gradient(180deg, #2c3a52, #1b2537);
+    box-shadow: 0 5px 14px rgba(0, 0, 0, 0.4);
+  }
+}
+
+.popup-footer { margin-top: 2px; padding-top: 11px; border-top: 1px dashed var(--border); }
+.popup-footer .hint { font-size: 11px; line-height: 1.6; }
+
+/* Keyboard focus on the primary action needs to read over the gradient */
+#toggle:focus-visible { box-shadow: 0 0 0 3px var(--accent-ring), var(--shadow-accent); }

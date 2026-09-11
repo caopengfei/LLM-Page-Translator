@@ -43,4 +43,42 @@ describe('start', () => {
     await vi.advanceTimersByTimeAsync(500);
     expect(calls.length).toBe(0);
   });
+
+  it('reports attribute changes for the configured filter', async () => {
+    const el = document.createElement('input');
+    document.body.appendChild(el);
+    const calls = [];
+    const handle = Observer.start(document.body, {
+      debounceMs: 100,
+      attributeFilter: ['placeholder', 'title'],
+      onNewNodes: (roots) => calls.push(roots)
+    });
+    el.setAttribute('title', 'Tip');
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls.length).toBe(1);
+    expect(calls[0]).toContain(el);
+    handle.stop();
+  });
+
+  it('ignores attributes outside the filter, and all attributes without a filter', async () => {
+    const el = document.createElement('input');
+    document.body.appendChild(el);
+    const calls = [];
+    const filtered = Observer.start(document.body, {
+      debounceMs: 100,
+      attributeFilter: ['title'],
+      onNewNodes: (roots) => calls.push(roots)
+    });
+    el.setAttribute('placeholder', 'Search');
+    el.setAttribute('data-x', '1');
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls.length).toBe(0);
+    filtered.stop();
+
+    const unfiltered = Observer.start(document.body, { debounceMs: 100, onNewNodes: (roots) => calls.push(roots) });
+    el.setAttribute('title', 'Tip');
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls.length).toBe(0);
+    unfiltered.stop();
+  });
 });

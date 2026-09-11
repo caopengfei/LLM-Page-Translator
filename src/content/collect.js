@@ -100,7 +100,7 @@
     return items;
   }
 
-  const ExtCollect = { makeSkipMap, skipKey, isSkipped, markSkipped, unmarkSkipped, collect, collectMany };
+  const ExtCollect = { ATTR_NAMES, makeSkipMap, skipKey, isSkipped, markSkipped, unmarkSkipped, collect, collectMany };
   global.Ext = global.Ext || {};
   global.Ext.collect = ExtCollect;
   if (typeof module !== 'undefined' && module.exports) module.exports = ExtCollect;
