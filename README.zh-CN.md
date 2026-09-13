@@ -153,9 +153,12 @@
 npm install
 npm test        # Vitest + jsdom;运行命令查看当前测试数量
 npm run validate # 校验 manifest 引用的扩展资源
+npm run icons   # 重新生成 icons/icon.svg 与 16/32/48/128 四个 PNG
 ```
 
 测试覆盖:批次切分与响应解析、缓存哈希、DOM 收集与替换/还原对账、观察器防抖、LLM 请求构建与超时、service worker 消息路由与重试、popup/options 状态渲染、i18n 键完整性、manifest 文件存在性。
+
+扩展图标只有一份来源:`scripts/generate-icons.mjs` 用与 `src/shared/theme.css` 中 `.brand-mark` 相同的「圆角磁贴 + 地球」几何,同时栅格化出 `icons/icon.svg` 和四个 PNG,因此工具栏图标不会再和面板、设置页的标识脱节。要改图标请改生成器,不要直接改 PNG。16px 那一档有意去掉经线:在 12px 的地球里,经线加上赤道会糊成一片格栅,而不是球体。
 
 修改代码后,在 `chrome://extensions` 点扩展卡片上的刷新按钮即可生效;改了 content script 后需刷新目标网页。
 
@@ -180,7 +183,7 @@ npm run validate # 校验 manifest 引用的扩展资源
 ```
 manifest.json                     MV3 清单(default_locale + __MSG__ 本地化)
 _locales/<locale>/messages.json   18 种界面语言文案表
-icons/                            16/32/48/128 扩展图标
+icons/                             icon.svg 源文件 + 16/32/48/128 扩展图标
 src/shared/constants.js           消息类型 / 页面状态 / 默认配置 / 批参数 / 语言清单 / UI 语言推导
 src/shared/i18n.js                文案查找(t / apply)与 data-i18n* DOM 填充
 src/shared/batch.js               批切分 + LLM JSON payload 构建与容错解析
@@ -196,6 +199,7 @@ src/content/main.js               content 编排入口(TOGGLE 切换 + 流式上
 src/popup/                        工具栏面板(popup.html / popup.css / popup.js)
 src/options/                      配置页(options.html / options.css / options.js)
 test/                             单元测试(Vitest + jsdom)
+scripts/                          manifest 资源校验 + 图标生成
 docs/superpowers/                 设计与实现计划文档
 ```
 

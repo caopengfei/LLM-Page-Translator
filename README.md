@@ -153,9 +153,12 @@ UI copy is not hard-coded. It lives in `_locales/<locale>/messages.json`, and Ch
 npm install
 npm test        # Vitest + jsdom; run the command to see the current test count
 npm run validate # Verify manifest-referenced extension resources
+npm run icons   # Regenerate icons/icon.svg and the 16/32/48/128 PNGs
 ```
 
 Coverage includes batch splitting and response parsing, cache hashing, DOM collection and apply/restore reconciliation, observer debouncing, LLM request building and timeouts, service-worker message routing and retries, popup/options state rendering, i18n key completeness, and manifest file existence.
+
+The pack icon has a single source: `scripts/generate-icons.mjs` rasterizes `icons/icon.svg` and the four PNGs from the same tile-plus-globe geometry that `.brand-mark` uses in `src/shared/theme.css`, so the toolbar icon cannot drift from the header mark on the panel and options pages. Edit the generator, not the PNGs. The 16px variant intentionally drops the meridian: inside a 12px globe the meridian plus the equator reads as a lattice rather than a sphere.
 
 After changing code, click the refresh button on the extension card at `chrome://extensions` to reload; changes to content scripts also require reloading the target page.
 
@@ -180,7 +183,7 @@ To view it: `chrome://extensions` → this extension → click **Service Worker*
 ```
 manifest.json                    MV3 manifest (default_locale + __MSG__ localization)
 _locales/<locale>/messages.json  18 UI-language message tables
-icons/                           16/32/48/128 extension icons
+icons/                           icon.svg source + 16/32/48/128 extension icons
 src/shared/constants.js          message types / page states / default config / batch params / language list / UI-language inference
 src/shared/i18n.js               message lookup (t / apply) and data-i18n* DOM filling
 src/shared/batch.js              batch splitting + LLM JSON payload building and tolerant parsing
@@ -196,6 +199,7 @@ src/content/main.js              content orchestration entry (TOGGLE switching +
 src/popup/                       toolbar panel (popup.html / popup.css / popup.js)
 src/options/                     options page (options.html / options.css / options.js)
 test/                            unit tests (Vitest + jsdom)
+scripts/                         manifest resource validation + icon generation
 docs/superpowers/                design and implementation-plan documents (Chinese)
 ```
 
