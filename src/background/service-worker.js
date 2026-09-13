@@ -116,6 +116,10 @@ function isRetryable(err) {
   return Number.isInteger(err.status) && err.status >= 500 && err.status <= 599;
 }
 
+// Test connection 的重试次数固定为 1:它只是一次连通性探测,
+// 用设置页配置的重试次数会让"点一下测试"在最坏情况下等上很久
+const TEST_CONNECTION_RETRIES = 1;
+
 async function loadConfig(configStorage) {
   const data = await configStorage.get(C.STORAGE_KEYS.CONFIG);
   const stored = data && data[C.STORAGE_KEYS.CONFIG];
@@ -150,6 +154,8 @@ async function handleTranslateBatch(msg, deps, sender) {
   const misses = [...idsByText.keys()].map((text, idx) => ({ id: 'm' + idx, text }));
 
   const requestConfig = Object.assign({}, config, { targetLang });
+  // 重试次数来自设置页(默认 3),storage 里的值可能越界或非法,统一夹紧后再用
+  const retries = C.normalizeRetries(config.retries);
   const batches = Batch.splitIntoBatches(misses, C.BATCH_MAX_ITEMS, C.BATCH_MAX_CHARS);
   const concurrency = Math.min(C.BATCH_CONCURRENCY || 1, batches.length);
   let cursor = 0;
@@ -162,7 +168,7 @@ async function handleTranslateBatch(msg, deps, sender) {
     const payload = Batch.buildPayload(batch);
     const raw = await withRetry(
       () => Llm.translateViaLlm(requestConfig, payload, deps.fetchImpl, deps.logger),
-      2, deps.sleep, isRetryable
+      retries, deps.sleep, isRetryable
     );
     const parsed = Batch.parseResponse(raw);
     const newPairs = [];
@@ -244,7 +250,7 @@ async function handleTestConnection(msg, deps) {
   try {
     const raw = await withRetry(
       () => Llm.translateViaLlm(cfg, { '0': 'Hello, world!' }, deps.fetchImpl, deps.logger),
-      1, deps.sleep, isRetryable
+      TEST_CONNECTION_RETRIES, deps.sleep, isRetryable
     );
     const parsed = Batch.parseResponse(raw);
     return { ok: true, sample: parsed['0'] || '' };

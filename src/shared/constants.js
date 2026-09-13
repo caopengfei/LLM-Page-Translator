@@ -31,8 +31,15 @@
       targetLang: 'en',
       // 单次请求超时。翻译负载远大于 Test connection 的探测请求,
       // 30s 对真实批次偏短(自建/慢模型常见),默认放宽到 120s 并允许设置页调整
-      timeoutMs: 120000
+      timeoutMs: 120000,
+      // 失败后额外重发的次数(不含首次请求)。仅对可重试错误生效(5xx/429);
+      // 0 表示不重试。默认 3 次:瞬时限流下多给一次机会,又不至于把用户拖太久
+      retries: 3
     },
+    // 重试次数上下限:退避单次封顶 10s,再多的重试只会把 MV3 存活窗口拖长,
+    // 且对限流接口越打越死。0 是合法值(明确表示不重试)
+    RETRY_MIN: 0,
+    RETRY_MAX: 5,
     // 目标语言清单:popup 与 options 页共用同一份,保证两处可选项一致。
     // label 一律用该语言的母语自称(English / 日本語 / Deutsch…),语言选择器不随界面语言翻译
     LANGUAGES: [
@@ -69,7 +76,8 @@
     STORAGE_KEYS: { CONFIG: 'config', CACHE_PREFIX: 'tc:' },
     uiLanguage,
     pickTargetLang,
-    defaultTargetLang
+    defaultTargetLang,
+    normalizeRetries
   };
 
   // 浏览器 UI 语言(如 'zh-CN'、'en-US')。非扩展环境/无该 API 时返回空串,
@@ -100,6 +108,16 @@
   // 首次使用(用户尚未选择过目标语言)时的默认值
   function defaultTargetLang() {
     return pickTargetLang(uiLanguage(), EXT_CONSTANTS.DEFAULT_CONFIG.targetLang);
+  }
+
+  // 把任意来源(旧版本配置、手工改写的 storage、表单输入)的重试次数夹到合法区间。
+  // 缺失/非数字一律回落到默认值;越界值夹紧而不是报错,避免一个坏值让翻译整体不可用
+  function normalizeRetries(value) {
+    if (value === undefined || value === null || value === '') return EXT_CONSTANTS.DEFAULT_CONFIG.retries;
+    const n = Number(value);
+    if (!Number.isFinite(n)) return EXT_CONSTANTS.DEFAULT_CONFIG.retries;
+    const clamped = Math.min(EXT_CONSTANTS.RETRY_MAX, Math.max(EXT_CONSTANTS.RETRY_MIN, Math.floor(n)));
+    return clamped;
   }
 
   global.EXT_CONSTANTS = EXT_CONSTANTS;

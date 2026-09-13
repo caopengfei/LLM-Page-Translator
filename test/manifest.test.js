@@ -111,6 +111,33 @@ describe('EXT_CONSTANTS', () => {
       expect(l.label.length).toBeGreaterThan(0);
     });
   });
+
+  it('defaults retries to 3 within a sane range', () => {
+    expect(C.DEFAULT_CONFIG.retries).toBe(3);
+    expect(C.RETRY_MIN).toBe(0); // 0 = 不重试,必须是合法值
+    expect(C.RETRY_MAX).toBeGreaterThanOrEqual(C.DEFAULT_CONFIG.retries);
+  });
+});
+
+describe('normalizeRetries', () => {
+  it('falls back to the default for missing or non-numeric values', () => {
+    [undefined, null, '', 'abc', NaN, Infinity].forEach((raw) => {
+      expect(C.normalizeRetries(raw), String(raw)).toBe(C.DEFAULT_CONFIG.retries);
+    });
+  });
+
+  it('accepts integers inside the allowed range, including 0', () => {
+    expect(C.normalizeRetries(0)).toBe(0);
+    expect(C.normalizeRetries(1)).toBe(1);
+    expect(C.normalizeRetries(5)).toBe(5);
+    expect(C.normalizeRetries('4')).toBe(4); // 表单/storage 里的数字字符串
+  });
+
+  it('clamps out-of-range values instead of failing', () => {
+    expect(C.normalizeRetries(-3)).toBe(C.RETRY_MIN);
+    expect(C.normalizeRetries(999)).toBe(C.RETRY_MAX);
+    expect(C.normalizeRetries(2.7)).toBe(2); // 非整数向下取整
+  });
 });
 
 describe('pickTargetLang / defaultTargetLang', () => {

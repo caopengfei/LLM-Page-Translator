@@ -58,6 +58,10 @@
             <span class="field-label" data-i18n="options_field_timeout"></span>
             <input name="timeoutSec" type="number" min="5" step="5" placeholder="120">
           </label>
+          <label class="field">
+            <span class="field-label" data-i18n="options_field_retries"></span>
+            <input name="retries" type="number" min="0" max="5" step="1" placeholder="3">
+          </label>
         </div>
       </section>
 
@@ -84,6 +88,7 @@
     <div class="hints">
       <p class="hint" data-i18n-html="options_hint_base_url"></p>
       <p class="hint" data-i18n-html="options_hint_timeout"></p>
+      <p class="hint" data-i18n-html="options_hint_retries"></p>
     </div>
   </div>
 

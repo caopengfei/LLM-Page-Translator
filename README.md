@@ -64,6 +64,7 @@ Fill in the fields and click **Save**:
 | **Model** | Model name, e.g. `gpt-4o-mini` |
 | **Target language** | Destination language. On first use it is inferred from the browser UI language (a German UI defaults to German), falling back to English; once you pick one manually, it sticks |
 | **Request timeout (seconds)** | Maximum wait for a single translation request, **120 seconds** by default. Test connection also honors this value |
+| **Retries** | How many extra requests are sent after a retryable failure (HTTP 5xx or 429), **3** by default; 0 disables retries, maximum 5. Test connection always retries once, regardless of this value |
 
 Click **Test connection** to verify connectivity; on success it echoes a sample translation.
 
@@ -129,7 +130,7 @@ The page keeps three states rather than a simple boolean — "skipped because sa
 
 - **De-duplication** — repeated text within a batch is requested once; source text that hits the cache across batches or sessions is read directly
 - **Cache** — keyed by "target language + model + source text" (FNV-1a 64-bit hash) in `chrome.storage.local`; the earliest-added entries are evicted once the size watermark is reached
-- **Retries** — failures are retried **2 times** with 1s / 2s backoff for HTTP 5xx and 5s / 10s backoff for HTTP 429; other client, parsing, timeout, and network errors fail immediately
+- **Retries** — a failed batch is retried **3 times** by default (configurable 0–5 in Settings) with 1s / 2s / 4s backoff for HTTP 5xx and 5s / 10s / 10s backoff for HTTP 429 (each wait is capped at 10s); other client, parsing, timeout, and network errors fail immediately
 - **Partial success** — when a batch fails permanently, successful batches still return and are cached, so the next click only back-fills what is missing
 
 ---

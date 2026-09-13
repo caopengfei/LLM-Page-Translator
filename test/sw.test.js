@@ -214,6 +214,70 @@ describe('TRANSLATE_BATCH', () => {
     expect(sleeps).toEqual([5000, 10000]); // 限流退避 5s/10s,而非 1s/2s
   });
 
+  it('retries up to the default 3 times (4 requests in total)', async () => {
+    const { deps } = makeDeps();
+    let calls = 0;
+    deps.fetchImpl = async () => {
+      calls += 1;
+      if (calls <= 3) return { ok: false, status: 503, text: async () => 'unavailable' };
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: '{"0":"你好"}' } }] }) };
+    };
+    const res = await makeMessageHandler(deps)({
+      type: C.MSG.TRANSLATE_BATCH, items: [{ id: 'a', text: 'Hello' }], targetLang: 'zh-CN'
+    });
+    expect(res.ok).toBe(true);
+    expect(calls).toBe(4); // 首次 + 3 次重试
+  });
+
+  it.each([[0, 1], [1, 2], [5, 6]])('sends %i retries after the first attempt when configured', async (retries, expected) => {
+    const { deps } = makeDeps();
+    deps.configStorage = {
+      get: async () => ({ [C.STORAGE_KEYS.CONFIG]: { baseUrl: 'https://api.test/v1', apiKey: 'sk-test', model: 'm1', targetLang: 'zh-CN', retries } })
+    };
+    let calls = 0;
+    deps.fetchImpl = async () => {
+      calls += 1;
+      return { ok: false, status: 503, text: async () => 'unavailable' };
+    };
+    const res = await makeMessageHandler(deps)({
+      type: C.MSG.TRANSLATE_BATCH, items: [{ id: 'a', text: 'Hello' }], targetLang: 'zh-CN'
+    });
+    expect(res.ok).toBe(false);
+    expect(calls).toBe(expected);
+  });
+
+  it('clamps an out-of-range stored retry count to the maximum', async () => {
+    const { deps } = makeDeps();
+    deps.configStorage = {
+      get: async () => ({ [C.STORAGE_KEYS.CONFIG]: { baseUrl: 'https://api.test/v1', apiKey: 'sk-test', model: 'm1', targetLang: 'zh-CN', retries: 99 } })
+    };
+    let calls = 0;
+    deps.fetchImpl = async () => {
+      calls += 1;
+      return { ok: false, status: 503, text: async () => 'unavailable' };
+    };
+    await makeMessageHandler(deps)({
+      type: C.MSG.TRANSLATE_BATCH, items: [{ id: 'a', text: 'Hello' }], targetLang: 'zh-CN'
+    });
+    expect(calls).toBe(C.RETRY_MAX + 1); // 夹到上限,而不是照着 99 重试
+  });
+
+  it('falls back to the default retry count when the stored value is unusable', async () => {
+    const { deps } = makeDeps();
+    deps.configStorage = {
+      get: async () => ({ [C.STORAGE_KEYS.CONFIG]: { baseUrl: 'https://api.test/v1', apiKey: 'sk-test', model: 'm1', targetLang: 'zh-CN', retries: 'abc' } })
+    };
+    let calls = 0;
+    deps.fetchImpl = async () => {
+      calls += 1;
+      return { ok: false, status: 503, text: async () => 'unavailable' };
+    };
+    await makeMessageHandler(deps)({
+      type: C.MSG.TRANSLATE_BATCH, items: [{ id: 'a', text: 'Hello' }], targetLang: 'zh-CN'
+    });
+    expect(calls).toBe(C.DEFAULT_CONFIG.retries + 1);
+  });
+
   it('caches and returns earlier batches when a later batch permanently fails', async () => {
     const { deps, fetchCalls, cacheBackend, okJson } = makeDeps();
     deps.fetchImpl = async (url, opts) => {
@@ -239,7 +303,7 @@ describe('TRANSLATE_BATCH', () => {
     expect(res.translations.a).toBe('FIRST_OK');
     expect('b' in res.translations).toBe(false); // 批 2 失败,未翻译
     expect(res.partial).toBe(true); // 标记为部分结果
-    expect(fetchCalls.length).toBe(3); // 批 2:初始 + 2 次重试
+    expect(fetchCalls.length).toBe(4); // 批 2:初始 + 3 次重试(默认值)
     // 批 1 的译文已写入缓存
     const cached = await Cache.getMany(cacheBackend, 'zh-CN', [longA], 'm1');
     expect(cached.get(longA)).toBe('FIRST_OK');

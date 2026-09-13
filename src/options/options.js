@@ -5,6 +5,7 @@
   const t = (key, subs) => I18n.t(key, subs);
   const FIELDS = ['baseUrl', 'apiKey', 'model', 'targetLang']; // 必填字段
   const TIMEOUT_FIELD = 'timeoutSec'; // 可选:秒 → 存为 config.timeoutMs
+  const RETRIES_FIELD = 'retries'; // 可选:直接存为 config.retries(次)
 
   const LangSelect = global.Ext.langSelect;
 
@@ -28,6 +29,18 @@
     LangSelect.ensureOption(select, value);
   }
 
+  // 表单里的重试次数;空/非数字/越界时返回 null(表示使用默认值)。
+  // 越界不夹紧而是回落默认值:用户手填 99 时更可能是笔误,静默按 5 处理会掩盖意图
+  function retriesFromForm(form) {
+    const el = form.elements[RETRIES_FIELD];
+    if (!el) return null;
+    const raw = String(el.value || '').trim();
+    if (!raw) return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < C.RETRY_MIN || n > C.RETRY_MAX) return null;
+    return Math.floor(n);
+  }
+
   function fillForm(form, cfg) {
     FIELDS.forEach((name) => {
       // 目标语言没有存过时按浏览器 UI 语言推导,让下拉框显示用户看得懂的那一项
@@ -44,6 +57,8 @@
       const ms = (cfg && Number(cfg.timeoutMs)) || C.DEFAULT_CONFIG.timeoutMs;
       el.value = String(Math.round(ms / 1000));
     }
+    const retriesEl = form.elements[RETRIES_FIELD];
+    if (retriesEl) retriesEl.value = String(C.normalizeRetries(cfg && cfg.retries));
   }
 
   function isValidBaseUrl(value) {
@@ -81,6 +96,10 @@
     // 空/非法输入表示"用默认超时":删掉旧值交给 DEFAULT_CONFIG 兜底,而不是保留旧值
     if (timeoutMs) merged.timeoutMs = timeoutMs;
     else delete merged.timeoutMs;
+    const retries = retriesFromForm(form);
+    // 重试次数同理:空/非法输入回到默认值,不把旧值留在配置里
+    if (retries === null) delete merged.retries;
+    else merged.retries = retries;
     const obj = {};
     obj[C.STORAGE_KEYS.CONFIG] = merged;
     await storage.set(obj);
@@ -134,7 +153,7 @@
     loadConfigInto(form, storage);
   }
 
-  const api = { FIELDS, TIMEOUT_FIELD, configFromForm, timeoutMsFromForm, fillForm, isValidBaseUrl, validateConfig, loadConfigInto, saveConfigFrom, populateLanguages, ensureLangOption, wirePage };
+  const api = { FIELDS, TIMEOUT_FIELD, RETRIES_FIELD, configFromForm, timeoutMsFromForm, retriesFromForm, fillForm, isValidBaseUrl, validateConfig, loadConfigInto, saveConfigFrom, populateLanguages, ensureLangOption, wirePage };
   global.Ext = global.Ext || {};
   global.Ext.options = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

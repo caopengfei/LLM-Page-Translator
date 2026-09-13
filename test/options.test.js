@@ -13,6 +13,7 @@ beforeEach(() => {
       <input name="baseUrl"><input name="apiKey"><input name="model">
       <select name="targetLang"><option value="zh-CN">简体中文</option><option value="en">English</option></select>
       <input name="timeoutSec">
+      <input name="retries">
     </form>`;
 });
 
@@ -147,6 +148,67 @@ describe('timeout field (seconds ↔ config.timeoutMs)', () => {
 
     Options.fillForm(f, {});
     expect(Number(f.elements.timeoutSec.value)).toBe(120); // 默认 120 秒
+  });
+});
+
+describe('retries field (config.retries)', () => {
+  function fillRequired(f) {
+    f.elements.baseUrl.value = 'https://api.test/v1';
+    f.elements.apiKey.value = 'sk-1';
+    f.elements.model.value = 'm1';
+    f.elements.targetLang.value = 'zh-CN';
+  }
+
+  it('stores retries on save and formats it back into the form', async () => {
+    const writes = [];
+    const storage = { set: async (obj) => writes.push(obj) };
+    const f = form();
+    fillRequired(f);
+    f.elements.retries.value = '0';
+    const res = await Options.saveConfigFrom(f, storage);
+    expect(res.ok).toBe(true);
+    expect(writes[0].config.retries).toBe(0);
+
+    f.elements.retries.value = '';
+    Options.fillForm(f, writes[0].config);
+    expect(f.elements.retries.value).toBe('0'); // 0 是合法值,不能被当成"空"
+  });
+
+  it('clears a previously stored retry count when the field is emptied', async () => {
+    const writes = [];
+    const storage = {
+      get: async () => ({ config: { retries: 1, apiKey: 'old' } }),
+      set: async (obj) => writes.push(obj)
+    };
+    const f = form();
+    fillRequired(f);
+    f.elements.retries.value = '';
+    await Options.saveConfigFrom(f, storage);
+    expect('retries' in writes[0].config).toBe(false); // 交给 DEFAULT_CONFIG 兜底
+  });
+
+  it('falls back to the default for blank or out-of-range input', async () => {
+    const writes = [];
+    const storage = { set: async (obj) => writes.push(obj) };
+    const f = form();
+    fillRequired(f);
+
+    f.elements.retries.value = '99'; // 超出上限
+    await Options.saveConfigFrom(f, storage);
+    expect('retries' in writes[0].config).toBe(false);
+
+    writes.length = 0;
+    f.elements.retries.value = 'abc';
+    await Options.saveConfigFrom(f, storage);
+    expect('retries' in writes[0].config).toBe(false);
+
+    Options.fillForm(f, {});
+    expect(Number(f.elements.retries.value)).toBe(3); // 默认 3 次
+  });
+
+  it('exposes the retry bounds from shared constants', () => {
+    expect(Options.RETRIES_FIELD).toBe('retries');
+    expect(Options.retriesFromForm(form())).toBeNull(); // 空表单 → 用默认值
   });
 });
 
