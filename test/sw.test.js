@@ -39,7 +39,7 @@ function makeDeps() {
 describe('TRANSLATE_BATCH', () => {
   it('serves fully-cached items without calling the LLM', async () => {
     const { deps, fetchCalls, cacheBackend } = makeDeps();
-    await Cache.putMany(cacheBackend, 'zh-CN', [{ src: 'Hello', dst: '你好' }]);
+    await Cache.putMany(cacheBackend, 'zh-CN', [{ src: 'Hello', dst: '你好' }], 'm1');
     const handler = makeMessageHandler(deps);
     const res = await handler({ type: C.MSG.TRANSLATE_BATCH, items: [{ id: 'a', text: 'Hello' }], targetLang: 'zh-CN' });
     expect(res).toEqual({ ok: true, translations: { a: '你好' } });
@@ -54,7 +54,7 @@ describe('TRANSLATE_BATCH', () => {
     expect(res.translations.a).toBe('你好');
     expect(fetchCalls.length).toBe(1);
     expect(fetchCalls[0].opts.headers.Authorization).toBe('Bearer sk-test');
-    const again = await Cache.getMany(cacheBackend, 'zh-CN', ['Hello']);
+    const again = await Cache.getMany(cacheBackend, 'zh-CN', ['Hello'], 'm1');
     expect(again.get('Hello')).toBe('你好');
   });
 
@@ -140,6 +140,23 @@ describe('TRANSLATE_BATCH', () => {
     expect(calls).toBe(3); // 5xx 仍然重试
   });
 
+  it('backs off with doubled intervals on HTTP 429 rate limiting', async () => {
+    const { deps } = makeDeps();
+    const sleeps = [];
+    deps.sleep = async (ms) => { sleeps.push(ms); };
+    let calls = 0;
+    deps.fetchImpl = async () => {
+      calls += 1;
+      if (calls <= 2) return { ok: false, status: 429, text: async () => 'slow down' };
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: '{"0":"你好"}' } }] }) };
+    };
+    const res = await makeMessageHandler(deps)({
+      type: C.MSG.TRANSLATE_BATCH, items: [{ id: 'a', text: 'Hello' }], targetLang: 'zh-CN'
+    });
+    expect(res.ok).toBe(true);
+    expect(sleeps).toEqual([5000, 10000]); // 限流退避 5s/10s,而非 1s/2s
+  });
+
   it('caches and returns earlier batches when a later batch permanently fails', async () => {
     const { deps, fetchCalls, cacheBackend, okJson } = makeDeps();
     deps.fetchImpl = async (url, opts) => {
@@ -167,7 +184,7 @@ describe('TRANSLATE_BATCH', () => {
     expect(res.partial).toBe(true); // 标记为部分结果
     expect(fetchCalls.length).toBe(3); // 批 2:初始 + 2 次重试
     // 批 1 的译文已写入缓存
-    const cached = await Cache.getMany(cacheBackend, 'zh-CN', [longA]);
+    const cached = await Cache.getMany(cacheBackend, 'zh-CN', [longA], 'm1');
     expect(cached.get(longA)).toBe('FIRST_OK');
   });
 
