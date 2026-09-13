@@ -96,7 +96,12 @@ async function withRetry(fn, retries, sleepFn, shouldRetry) {
       if (attempt >= retries) throw err;
       // 地址不可达(超时/网络)重试无意义,直接失败,避免用户白等 3 倍超时
       if (shouldRetry && !shouldRetry(err)) throw err;
-      await sleepFn(Math.pow(2, attempt) * 1000);
+      // 限流(429)退避加倍:密集重试只会进一步触发限流。
+      // MV3 说明:await sleep 期间 SW 靠未决 Promise 保持存活(约 5 分钟预算),
+      // 单次睡眠封顶 10s(翻译批次最多睡 5s+10s=15s),避免退避把存活窗口拖得过长
+      const base = err && err.code === 'RATE_LIMIT' ? 5000 : 1000;
+      const delay = Math.min(Math.pow(2, attempt) * base, 10000);
+      await sleepFn(delay);
       attempt += 1;
     }
   }
@@ -124,7 +129,7 @@ async function handleTranslateBatch(msg, deps, sender) {
   // 流式推送的目标 tab;来自 content script 的 sender 一定带 tab,其余调用方(popup/测试)没有
   const tabId = sender && sender.tab ? sender.tab.id : undefined;
 
-  const cached = await Cache.getMany(deps.cacheBackend, targetLang, [...new Set(items.map((i) => i.text))]);
+  const cached = await Cache.getMany(deps.cacheBackend, targetLang, [...new Set(items.map((i) => i.text))], config.model);
   const translations = {};
   items.forEach((item) => {
     const hit = cached.get(item.text);
@@ -171,7 +176,7 @@ async function handleTranslateBatch(msg, deps, sender) {
       // 缓存写入失败（含配额超限）只降级为告警：译文照常返回并推送，
       // 否则一次存储异常会连带丢掉本批的流式上屏
       try {
-        await Cache.putMany(deps.cacheBackend, targetLang, newPairs);
+        await Cache.putMany(deps.cacheBackend, targetLang, newPairs, config.model);
       } catch (e) {
         deps.logger.warn('[LLM Page Translator] cache write failed:', String((e && e.message) || e));
       }
@@ -293,8 +298,6 @@ export function makeMessageHandler(overrides) {
           return await handleToggleTab(msg, deps);
         case C.MSG.GET_STATE:
           return await handleGetState(msg, deps);
-        case C.MSG.TOGGLE:
-          return { ok: true };
         default:
           return { ok: false, error: 'Unknown message type: ' + msg.type };
       }

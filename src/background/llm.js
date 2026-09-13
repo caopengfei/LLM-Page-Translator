@@ -113,7 +113,10 @@
       preview(bodyText, LOG_MAX_CHARS)
     ]);
     if (!res.ok) {
-      throw new Error('LLM API HTTP ' + res.status + ' (' + url + ')' + (bodyText ? ': ' + bodyText.slice(0, 200) : ''));
+      const httpErr = new Error('LLM API HTTP ' + res.status + ' (' + url + ')' + (bodyText ? ': ' + bodyText.slice(0, 200) : ''));
+      httpErr.status = res.status;
+      if (res.status === 429) httpErr.code = 'RATE_LIMIT'; // 上层据此加倍退避
+      throw httpErr;
     }
     let data;
     try {

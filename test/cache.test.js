@@ -36,6 +36,28 @@ describe('memoryBackend + getMany/putMany', () => {
     const got = await Cache.getMany(backend, 'en', ['Hello']);
     expect(got.has('Hello')).toBe(false);
   });
+
+  it('separates cache entries by model', async () => {
+    const backend = Cache.memoryBackend();
+    await Cache.putMany(backend, 'zh-CN', [{ src: 'Hello', dst: '你好' }], 'model-a');
+    expect((await Cache.getMany(backend, 'zh-CN', ['Hello'], 'model-a')).get('Hello')).toBe('你好');
+    // 换模型后旧缓存天然失配,不会读到旧模型的译文
+    expect((await Cache.getMany(backend, 'zh-CN', ['Hello'], 'model-b')).has('Hello')).toBe(false);
+  });
+
+  it('rejects records whose lang does not match the requested language', async () => {
+    const backend = Cache.memoryBackend();
+    // 键格式变更前的旧记录:src 对得上但 lang 串了,必须回源重译而不是静默命中
+    await backend.setMany([[Cache.keyFor('zh-CN', 'Hello'), { src: 'Hello', dst: 'WRONG-LANG', lang: 'en', at: 1 }]]);
+    expect((await Cache.getMany(backend, 'zh-CN', ['Hello'])).has('Hello')).toBe(false);
+  });
+
+  it('misses legacy records without a lang field instead of hitting them', async () => {
+    const backend = Cache.memoryBackend();
+    await backend.setMany([[Cache.keyFor('zh-CN', 'Hello'), { src: 'Hello', dst: 'legacy' }]]);
+    // 无 lang 的老条目按 miss 处理(回源重译后会被带 lang 的新记录覆盖),不报错
+    expect((await Cache.getMany(backend, 'zh-CN', ['Hello'])).has('Hello')).toBe(false);
+  });
 });
 
 describe('chromeStorageBackend', () => {
@@ -50,6 +72,23 @@ describe('chromeStorageBackend', () => {
     expect(got).toEqual({ k1: { src: 'A', dst: 'B' } });
     await backend.setMany([['k3', { src: 'C', dst: 'D' }]]);
     expect(calls[1]).toEqual(['set', { k3: { src: 'C', dst: 'D' } }]);
+  });
+});
+
+describe('entrySize', () => {
+  it('counts UTF-8 bytes, not UTF-16 code units', () => {
+    // '你好' 是 2 个字符、6 个 UTF-8 字节;按字符数估算会低估到 1/3
+    const rec = { src: '你好', dst: 'Hello', lang: 'en', at: 1 };
+    const expected = new TextEncoder().encode('k').length
+      + new TextEncoder().encode(JSON.stringify(rec)).length;
+    expect(Cache.entrySize('k', rec)).toBe(expected);
+    expect(Cache.entrySize('k', rec)).toBeGreaterThan('k'.length + JSON.stringify(rec).length);
+  });
+
+  it('handles null values', () => {
+    expect(Cache.entrySize('k', null)).toBe(
+      new TextEncoder().encode('k').length + new TextEncoder().encode('null').length
+    );
   });
 });
 
@@ -110,6 +149,33 @@ describe('backend capabilities', () => {
     const backend = Cache.chromeStorageBackend(fakeStorage);
     expect(backend.quotaBytes()).toBe(C.CACHE_FALLBACK_QUOTA_BYTES);
     expect(await backend.bytesInUse()).toBeGreaterThan(0); // 回退为按条目估算
+  });
+
+  it('chrome backend falls back to estimation when getBytesInUse throws', async () => {
+    const fakeStorage = {
+      QUOTA_BYTES: 10 * 1024 * 1024,
+      get: async () => ({ 'tc:x': { src: 'X', dst: 'Y', lang: 'zh-CN', at: 1 } }),
+      set: async () => {},
+      remove: async () => {},
+      // 真机上 getBytesInUse 可能抛错(如存储瞬时故障):不能让一次查询失败拖垮整批翻译
+      getBytesInUse: async () => { throw new Error('transient storage error'); }
+    };
+    const backend = Cache.chromeStorageBackend(fakeStorage);
+    expect(await backend.bytesInUse()).toBeGreaterThan(0);
+  });
+
+  it('memory backend with quota 0 falls back to the conservative quota', async () => {
+    // quotaBytes=0 按"缺失"处理:直接用 5MB 兜底,而不是算出水位 0 让淘汰删空缓存
+    const backend = Cache.memoryBackend({ quotaBytes: 0 });
+    expect(backend.quotaBytes()).toBe(C.CACHE_FALLBACK_QUOTA_BYTES);
+    await backend.setMany([['tc:a', { src: 'A', dst: 'B', lang: 'zh-CN', at: 1 }]]);
+    await Cache.enforceLimit(backend); // 小缓存远不到兜底水位,不得误删
+    expect(Object.keys(await backend.getAll())).toEqual(['tc:a']);
+  });
+
+  it('chrome backend with quota 0 falls back to the conservative quota', async () => {
+    const backend = Cache.chromeStorageBackend({ get: async () => ({}), set: async () => {}, remove: async () => {}, QUOTA_BYTES: 0 });
+    expect(backend.quotaBytes()).toBe(C.CACHE_FALLBACK_QUOTA_BYTES);
   });
 });
 
@@ -183,5 +249,26 @@ describe('enforceLimit (FIFO eviction)', () => {
     backend.getAll = async () => { getAllCalls += 1; return origGetAll(); };
     await Promise.all([Cache.enforceLimit(backend), Cache.enforceLimit(backend)]);
     expect(getAllCalls).toBe(1);
+  });
+
+  it('isolates the in-flight latch per backend', async () => {
+    const body = 'x'.repeat(200);
+    const specs = [1, 2, 3, 4, 5].map((i) => [
+      Cache.keyFor('zh-CN', 'e' + i + body),
+      { src: 'e' + i + body, dst: 'D' + i, lang: 'zh-CN', at: i }
+    ]);
+    const a = Cache.memoryBackend({ quotaBytes: 1000 });
+    const b = Cache.memoryBackend({ quotaBytes: 1000 });
+    await a.setMany(specs);
+    await b.setMany(specs);
+    let aGetAll = 0;
+    let bGetAll = 0;
+    const origA = a.getAll.bind(a);
+    const origB = b.getAll.bind(b);
+    a.getAll = async () => { aGetAll += 1; return origA(); };
+    b.getAll = async () => { bGetAll += 1; return origB(); };
+    await Promise.all([Cache.enforceLimit(a), Cache.enforceLimit(b)]);
+    expect(aGetAll).toBe(1);
+    expect(bGetAll).toBe(1); // 两个 backend 各自独立淘汰,而不是共用一个闩锁
   });
 });
