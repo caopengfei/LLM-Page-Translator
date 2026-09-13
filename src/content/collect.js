@@ -94,7 +94,10 @@
     const items = [];
     (roots || []).forEach((root) => {
       const type = root && root.nodeType;
-      if (type === 1 || type === 9) items.push(...collect(root, options));
+      if (type !== 1 && type !== 9) return;
+      // 观察器防抖期间节点可能已被移出文档:对死子树发起翻译纯属浪费请求
+      if (root.isConnected === false) return;
+      items.push(...collect(root, options));
     });
     items.forEach((item, i) => { item.id = 'i' + i; });
     return items;

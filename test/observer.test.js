@@ -81,4 +81,96 @@ describe('start', () => {
     expect(calls.length).toBe(0);
     unfiltered.stop();
   });
+
+  it('re-queues and retries later when the callback reports the nodes are not ready', async () => {
+    let busy = true;
+    const calls = [];
+    const handle = Observer.start(document.body, {
+      debounceMs: 100,
+      onNewNodes: (roots) => {
+        calls.push(roots);
+        return busy ? false : undefined;
+      }
+    });
+    const div = document.createElement('div');
+    document.body.appendChild(div);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls.length).toBe(1); // 首次尝试被回绝
+    busy = false;
+    await vi.advanceTimersByTimeAsync(100); // 重新入队后重试
+    expect(calls.length).toBe(2);
+    expect(calls[1]).toContain(div); // 节点没有在忙碌期间被丢弃
+    await vi.advanceTimersByTimeAsync(500);
+    expect(calls.length).toBe(2); // 成功处理后排空,不再重试
+    handle.stop();
+  });
+
+  it('re-queues nodes when the callback throws, instead of losing them', async () => {
+    let shouldThrow = true;
+    const calls = [];
+    const handle = Observer.start(document.body, {
+      debounceMs: 100,
+      onNewNodes: (roots) => {
+        calls.push(roots);
+        if (shouldThrow) throw new Error('boom');
+        return undefined;
+      }
+    });
+    const div = document.createElement('div');
+    document.body.appendChild(div);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls.length).toBe(1); // 异常被吞掉,不向外抛、不破坏计时器状态
+    shouldThrow = false;
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls.length).toBe(2);
+    expect(calls[1]).toContain(div); // 节点被重新入队重试
+    handle.stop();
+  });
+
+  it('drops the batch after maxErrors consecutive callback failures', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const calls = [];
+    const handle = Observer.start(document.body, {
+      debounceMs: 100,
+      maxErrors: 3,
+      onNewNodes: (roots) => { calls.push(roots); throw new Error('persistent bug'); }
+    });
+    const div = document.createElement('div');
+    document.body.appendChild(div);
+    // 首次 + 3 次重试(共 4 次调用)后放弃:透支上限的那一次直接丢弃不再排队
+    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls.length).toBe(4);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(calls.length).toBe(4); // 已放弃,不再空转
+    expect(warn).toHaveBeenCalled(); // 每次失败与放弃都有告警,不再静默
+    warn.mockRestore();
+    handle.stop();
+  });
+
+  it('keeps re-queuing busy backpressure without a retry cap', async () => {
+    let busy = true;
+    const calls = [];
+    const handle = Observer.start(document.body, {
+      debounceMs: 100,
+      maxErrors: 2, // 上限只约束"抛异常",忙背压不受影响——慢翻译中丢节点不可接受
+      onNewNodes: (roots) => {
+        calls.push(roots);
+        return busy ? false : undefined;
+      }
+    });
+    const div = document.createElement('div');
+    document.body.appendChild(div);
+    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls.length).toBe(3); // 忙等待持续重试,不被 maxErrors 截断
+    busy = false;
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls.length).toBe(4);
+    expect(calls[3]).toContain(div);
+    handle.stop();
+  });
 });

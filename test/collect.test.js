@@ -95,4 +95,10 @@ describe('collectMany', () => {
     expect(Collect.collectMany([null, document.createTextNode('x')], {})).toEqual([]);
     expect(Collect.collectMany([document.body], {}).map((i) => i.text)).toEqual(['Only']);
   });
+
+  it('skips roots that have left the document (dead subtrees are not translated)', () => {
+    const detached = document.createElement('div');
+    detached.innerHTML = '<p>Dead text</p>';
+    expect(Collect.collectMany([detached], {})).toEqual([]);
+  });
 });

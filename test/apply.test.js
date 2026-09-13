@@ -30,17 +30,24 @@ describe('applyTranslations', () => {
     expect(records[0].original).toBe('Search here');
   });
 
-  it('ignores missing translations and identical texts', () => {
-    const node = document.createTextNode('Same');
-    document.body.appendChild(node);
+  it('records identical texts as no-op skips without touching the DOM', () => {
+    const noopNode = document.createTextNode('Same');
+    const missingNode = document.createTextNode('Same');
+    document.body.appendChild(noopNode);
+    document.body.appendChild(missingNode);
     const records = Apply.applyTranslations(
       [
-        { id: 'x', node, kind: 'text', attr: null, text: 'Same' },
-        { id: 'y', node, kind: 'text', attr: null, text: 'Same' }
+        { id: 'x', node: noopNode, kind: 'text', attr: null, text: 'Same' },
+        { id: 'y', node: missingNode, kind: 'text', attr: null, text: 'Same' }
       ],
-      { x: 'Same', y: 'Other' }
+      { x: 'Same' }
     );
-    expect(records.map((r) => r.id)).toEqual(['y']);
+    // 译文与原文相同:返回 noop 记录(供调用方标记 skip),但节点值不变;
+    // 缺失译文仍无记录
+    expect(records.map((r) => r.id)).toEqual(['x']);
+    expect(records[0].noop).toBe(true);
+    expect(noopNode.nodeValue).toBe('Same');
+    expect(missingNode.nodeValue).toBe('Same');
   });
 
   it('records the exact string written, not just the translated fragment', () => {
@@ -164,5 +171,17 @@ describe('restoreAll', () => {
     ];
     dead.remove();
     expect(Apply.restoreAll(records)).toBe(1);
+  });
+
+  it('does not count or rewrite no-op records on restore', () => {
+    const node = document.createTextNode('Same');
+    document.body.appendChild(node);
+    const records = Apply.applyTranslations(
+      [{ id: 'a', node, kind: 'text', attr: null, text: 'Same' }],
+      { a: 'Same' }
+    );
+    expect(records[0].noop).toBe(true);
+    expect(Apply.restoreAll(records)).toBe(0);
+    expect(node.nodeValue).toBe('Same');
   });
 });

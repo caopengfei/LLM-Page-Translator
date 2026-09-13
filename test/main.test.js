@@ -120,4 +120,109 @@ describe('streaming translation into the page', () => {
     expect(res.translated).toBe(1);
     expect(document.body.textContent).toBe('你好');
   });
+
+  it('keeps streamed translations restorable when the full response never arrives', async () => {
+    document.body.innerHTML = '<div id="x1">Hello</div><div id="x2">World</div>';
+    let translateMsg = null;
+    stub.setSend((msg) => {
+      if (msg.type === C.MSG.DETECT_LANGUAGE) return Promise.resolve({ ok: true, language: 'fr' });
+      if (msg.type === C.MSG.TRANSLATE_BATCH) {
+        translateMsg = msg;
+        return new Promise((resolve, reject) => { pendingTranslate = { resolve, reject, msg }; });
+      }
+      return Promise.resolve({ ok: false, error: 'unexpected ' + msg.type });
+    });
+    const done = toggle();
+    await nextTick();
+    const helloId = translateMsg.items.find((i) => i.text === 'Hello').id;
+    stub.dispatch({ type: C.MSG.RESULT_BATCH, translations: { [helloId]: '你好' } });
+    expect(document.getElementById('x1').textContent).toBe('你好');
+    // 整包响应永远不回(如 SW 被回收):reject
+    pendingTranslate.reject(new Error('No response from background'));
+    pendingTranslate = null;
+    const res = await done;
+    expect(res.ok).toBe(false); // 错误照常上报
+    expect(res.state).toBe(C.STATE.TRANSLATED); // 但状态与 DOM 一致,保持"已翻译"
+    expect(res.translated).toBe(1);
+    // 再点一次 = 还原,已上屏的译文可以被撤掉
+    const restored = await toggle();
+    expect(restored.ok).toBe(true);
+    expect(restored.restored).toBe(1);
+    expect(document.getElementById('x1').textContent).toBe('Hello');
+    // 还原后状态归 idle,避免 afterEach 的 toggle 再触发一次翻译流程
+    stub.setSend(() => Promise.resolve({ ok: false, error: 'unhandled' }));
+  });
+
+  it('discards in-flight batch results that arrive after a restore (generation guard)', async () => {
+    document.body.innerHTML = '<p>First</p>';
+    stub.setSend((msg) => {
+      if (msg.type === C.MSG.DETECT_LANGUAGE) return Promise.resolve({ ok: true, language: 'fr' });
+      if (msg.type === C.MSG.TRANSLATE_BATCH) {
+        return Promise.resolve({ ok: true, translations: { i0: '翻译' }, partial: false });
+      }
+      return Promise.resolve({ ok: false, error: 'unexpected ' + msg.type });
+    });
+    await toggle();
+    expect(document.body.textContent).toBe('翻译');
+    // 动态补翻:新增节点触发观察器补翻,响应挂起
+    let dynamicResolve = null;
+    stub.setSend((msg) => {
+      if (msg.type === C.MSG.DETECT_LANGUAGE) return Promise.resolve({ ok: true, language: 'fr' });
+      if (msg.type === C.MSG.TRANSLATE_BATCH) {
+        return new Promise((resolve) => { dynamicResolve = resolve; });
+      }
+      return Promise.resolve({ ok: false, error: 'unexpected ' + msg.type });
+    });
+    const p = document.createElement('p');
+    p.textContent = 'Second';
+    document.body.appendChild(p);
+    await new Promise((r) => setTimeout(r, 700)); // 等观察器防抖并触发补翻
+    expect(dynamicResolve).not.toBeNull();
+    // 补翻进行中点击还原
+    const restored = await toggle();
+    expect(restored.ok).toBe(true);
+    expect(document.body.textContent).toBe('FirstSecond');
+    // 在途回包此时到达:不得把译文重新写回已还原的页面
+    dynamicResolve({ ok: true, translations: { i0: '翻译' }, partial: false });
+    await nextTick();
+    expect(p.textContent).toBe('Second');
+    // 还原后状态归 idle,避免 afterEach 的 toggle 再触发一次翻译流程
+    stub.setSend(() => Promise.resolve({ ok: false, error: 'unhandled' }));
+  });
+
+  it('excludes noop records from user-facing counts, but keeps them skippable', async () => {
+    // 'Same' 的译文与原文相同 → noop:DOM 不改,但要标记 skip,计数不得虚高
+    document.body.innerHTML = '<p>Hello</p><p>Same</p>';
+    stub.setSend((msg) => {
+      if (msg.type === C.MSG.DETECT_LANGUAGE) return Promise.resolve({ ok: true, language: 'fr' });
+      if (msg.type === C.MSG.TRANSLATE_BATCH) {
+        return Promise.resolve({ ok: true, translations: { i0: '你好', i1: 'Same' }, partial: false });
+      }
+      return Promise.resolve({ ok: false, error: 'unexpected ' + msg.type });
+    });
+    const res = await toggle();
+    expect(res.ok).toBe(true);
+    expect(res.translated).toBe(1); // 只有真正写回的 Hello
+    expect(res.chars).toBe(5); // noop 的 4 个字符不计入"共 X 字"
+    expect(document.body.textContent).toBe('你好Same');
+  });
+
+  it('reports no-text for an empty page without starting translation', async () => {
+    document.body.innerHTML = '';
+    let translateCalls = 0;
+    stub.setSend((msg) => {
+      if (msg.type === C.MSG.DETECT_LANGUAGE) return Promise.resolve({ ok: true, language: 'fr' });
+      if (msg.type === C.MSG.TRANSLATE_BATCH) {
+        translateCalls += 1;
+        return Promise.resolve({ ok: true, translations: {}, partial: false });
+      }
+      return Promise.resolve({ ok: false, error: 'unexpected ' + msg.type });
+    });
+    const res = await toggle();
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe('no-text');
+    expect(translateCalls).toBe(0); // 无文本直接返回,不发翻译请求
+    // 空页面也走了"翻译失败保持 idle"分支:观察器已停,可直接重试
+    stub.setSend(() => Promise.resolve({ ok: false, error: 'unhandled' }));
+  });
 });

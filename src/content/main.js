@@ -24,6 +24,9 @@
   let observerHandle = null;
   // 会话累计统计:源文字符数与翻译总耗时(含动态补翻),随 GET_STATE/响应带给 popup
   let stats = { chars: 0, ms: 0 };
+  // 还原代际号:每次还原自增。仍在途的 translateRoots 回包(流式推送/整包兜底)
+  // 据此失效,避免"还原后迟到的批次把译文重新写回页面"的状态脱节
+  let generation = 0;
 
   function send(msg) {
     return chrome.runtime.sendMessage(msg).then((res) => {
@@ -55,6 +58,12 @@
 
   function keyOf(rec) { return Collect.skipKey(rec.kind, rec.attr); }
 
+  // 用户可见的"已翻译 N 处":排除 noop 记录(译文与原文相同、DOM 未改动),
+  // 只统计真正写回页面的译文。applied 数组本身保留 noop(用于 skip 标记与对账)
+  function translatedCount() {
+    return applied.reduce((n, rec) => n + (rec.noop ? 0 : 1), 0);
+  }
+
   // 对账:丢弃脱离文档或被站点改写过的记录。两者都要解除 skip 标记——
   // 后者是为了让本轮 collect 能把它重新收进来翻译
   function reconcileRecords() {
@@ -67,6 +76,7 @@
 
   async function translateRoots(roots, targetLang) {
     const startedAt = Date.now();
+    const gen = generation; // 还原会使本轮回包失效(见 generation)
     // collectMany 在合并多个 root 后统一重新编号,避免各 root 的 'i0' id 冲突导致译文串位
     const items = Collect.collectMany(roots, { skip: skipMap });
     if (!items.length) return { applied: 0, partial: false, chars: 0, ms: 0 };
@@ -80,6 +90,7 @@
     // 把一批译文应用到 DOM。按 id 去重:同一节点只应用一次,
     // 避免 background 推送与最终响应把同一译文重复上屏、产生重复对账记录
     const applyBatch = (translations) => {
+      if (gen !== generation) return; // 页面已还原:在途回包一律丢弃
       const batchItems = [];
       Object.keys(translations || {}).forEach((id) => {
         if (appliedIds.has(id)) return;
@@ -92,11 +103,15 @@
         appliedIds.add(rec.id);
         applied.push(rec);
         Collect.markSkipped(skipMap, rec.node, keyOf(rec));
+        // noop 记录(DOM 未改动,译文与原文相同)只用于 skip 标记,不计入
+        // 用户可见的"已翻译 N 处 / 共 X 字"统计,避免数字虚高
+        if (rec.noop) return;
+        appliedCount += 1;
+        chars += rec.srcLen || 0;
       });
-      appliedCount += records.length;
-      chars += records.reduce((sum, rec) => sum + (rec.srcLen || 0), 0);
     };
 
+    let sendError = null;
     let batchListener = null;
     try {
       // 流式上屏:background 每完成一批就推 RESULT_BATCH,收到立即应用,不等全部返回
@@ -114,10 +129,16 @@
       // 兜底:个别批次推送丢失(或旧版 background 不推送)时,用完整响应补齐;
       // 已上屏的 id 会被 appliedIds 跳过
       applyBatch(res.translations);
+    } catch (err) {
+      // 流式上屏已落地的部分译文必须保留:吞掉错误带回,由调用方决定状态,
+      // 避免"页面已部分翻译但状态停在 idle、无法还原"的失真
+      if (appliedCount === 0) throw err;
+      sendError = err;
+      partial = true;
     } finally {
       if (batchListener) chrome.runtime.onMessage.removeListener(batchListener);
     }
-    return { applied: appliedCount, partial, chars, ms: Date.now() - startedAt };
+    return { applied: appliedCount, partial, chars, ms: Date.now() - startedAt, error: sendError };
   }
 
   function startObserver(targetLang) {
@@ -127,7 +148,9 @@
       // 站点改写 placeholder/title/aria-label/alt 也要触发补翻
       attributeFilter: Collect.ATTR_NAMES,
       onNewNodes: (roots) => {
-        if (mode !== S.TRANSLATED || translating) return;
+        // 正在翻译:本轮交给观察器重新排队,翻译结束后再补翻这些节点
+        if (translating) return false;
+        if (mode !== S.TRANSLATED) return;
         translating = true;
         reconcileRecords();
         // 动态补翻也计入"共 X 字 / 总是用时"累计
@@ -142,11 +165,15 @@
     });
   }
 
+  function stopObserver() {
+    if (observerHandle) { observerHandle.stop(); observerHandle = null; }
+  }
+
   function statePayload() {
     const payload = {
       ok: true,
       state: mode,
-      translated: applied.length,
+      translated: translatedCount(),
       chars: stats.chars,
       ms: stats.ms
     };
@@ -169,7 +196,7 @@
       };
     }
     if (mode === S.TRANSLATED) {
-      return { ok: true, reason: 'already-translated', state: mode, translated: applied.length, chars: stats.chars, ms: stats.ms };
+      return { ok: true, reason: 'already-translated', state: mode, translated: translatedCount(), chars: stats.chars, ms: stats.ms };
     }
     translating = true;
     translatingSince = Date.now();
@@ -195,17 +222,26 @@
       // 页面确实可翻译:归位为 idle,翻译失败时不残留旧的"语言一致"判定
       mode = S.IDLE;
       skipInfo = null;
-      const { applied: n, partial, chars, ms } = await translateRoots([document], targetLang);
+      // observer 提前启动:初始翻译耗时期间新增的节点由观察器排队重试,
+      // 翻译结束后立即补翻,不再出现"翻译窗口内渲染的内容永久漏翻"
+      startObserver(targetLang);
+      const { applied: n, partial, chars, ms, error } = await translateRoots([document], targetLang);
       stats.chars += chars;
       stats.ms += ms;
       if (n === 0) {
+        if (error) throw error; // 全部批次失败:原样上报,保持 idle 以便直接重试
+        stopObserver();
         return { ok: false, reason: 'no-text', state: mode, message: t('page_no_text') };
       }
-      startObserver(targetLang);
       mode = S.TRANSLATED;
-      return { ok: true, reason: 'translated', state: mode, translated: applied.length, chars: stats.chars, ms: stats.ms, partial, targetLang };
+      if (error) {
+        // 部分批次失败但已有译文上屏:保持 translated 让"还原"可达,同时把错误带回给 popup
+        return { ok: false, reason: 'error', state: mode, translated: translatedCount(), chars: stats.chars, ms: stats.ms, partial: true, message: String((error && error.message) || error) };
+      }
+      return { ok: true, reason: 'translated', state: mode, translated: translatedCount(), chars: stats.chars, ms: stats.ms, partial, targetLang };
     } catch (err) {
-      // 失败时不置 translated,用户可直接重试
+      // 完全失败(无译文上屏):停掉观察器并保持 idle,用户可直接重试
+      stopObserver();
       const message = String((err && err.message) || err);
       console.warn('[LLM Page Translator]', message);
       return { ok: false, reason: 'error', state: mode, message };
@@ -215,7 +251,8 @@
   }
 
   function restorePage() {
-    if (observerHandle) { observerHandle.stop(); observerHandle = null; }
+    generation += 1; // 使在途回包失效,还原后迟到的批次不得再改写 DOM
+    stopObserver();
     const restored = Apply.restoreAll(applied);
     applied.forEach((rec) => Collect.unmarkSkipped(skipMap, rec.node, keyOf(rec)));
     applied = [];

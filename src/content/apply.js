@@ -5,13 +5,19 @@
     const records = [];
     (items || []).forEach((item) => {
       const t = translations ? translations[item.id] : undefined;
-      if (typeof t !== 'string' || !t.length || t === item.text) return;
+      if (typeof t !== 'string' || !t.length) return;
       const node = item.node;
       if (!node) return;
       try {
         if (item.kind === 'text' && node.nodeType === 3) {
           const original = node.nodeValue;
           if (original == null || !original.includes(item.text)) return;
+          // 译文与原文相同:不改 DOM,但返回"原地"记录(noop),让调用方仍标记 skip;
+          // 否则这些节点每次页面变动都会被重新收集、重复发起翻译请求
+          if (t === item.text) {
+            records.push({ id: item.id, node, kind: 'text', attr: null, original, translated: t, written: original, srcLen: (item.text || '').length, noop: true });
+            return;
+          }
           // written 是实际落盘的完整值(可能带首尾空白),对账时用它判断站点是否改写过
           const written = original === item.text ? t : original.replace(item.text, t);
           node.nodeValue = written;
@@ -20,6 +26,10 @@
         } else if (item.kind === 'attr' && typeof node.setAttribute === 'function') {
           const original = node.getAttribute(item.attr);
           if (original == null) return;
+          if (t === item.text) {
+            records.push({ id: item.id, node, kind: 'attr', attr: item.attr, original, translated: t, written: original, srcLen: (item.text || '').length, noop: true });
+            return;
+          }
           node.setAttribute(item.attr, t);
           records.push({ id: item.id, node, kind: 'attr', attr: item.attr, original, translated: t, written: t, srcLen: (item.text || '').length });
         }
@@ -59,7 +69,8 @@
   function restoreAll(records) {
     let restored = 0;
     (records || []).slice().reverse().forEach((r) => {
-      if (!isAlive(r)) return; // 已脱离文档的节点无需还原,也不计入还原数
+      // noop 记录从未写入过 DOM,无需还原也不计入还原数
+      if (!isAlive(r) || r.noop) return;
       try {
         if (r.kind === 'text' && r.node.nodeType === 3) {
           r.node.nodeValue = r.original;
