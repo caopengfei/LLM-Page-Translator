@@ -1,36 +1,9 @@
 (function (global) {
   'use strict';
 
-  // 浏览器 UI 语言(如 'zh-CN'、'en-US')。非扩展环境/无该 API 时返回空串,
-  // 让调用方走兜底分支,测试里因此保持确定性
-  function uiLanguage() {
-    try {
-      if (typeof chrome !== 'undefined' && chrome && chrome.i18n &&
-        typeof chrome.i18n.getUILanguage === 'function') {
-        return chrome.i18n.getUILanguage() || '';
-      }
-    } catch (e) { /* 读取失败按未知语言处理 */ }
-    return '';
-  }
-
-  // 把浏览器 UI 语言映射到受支持的目标语言:先精确匹配,再按主语言子标签匹配。
-  // 中文需要区分简繁(zh-Hant/zh-TW/zh-HK → zh-TW),其余语言直接取主标签(es-419 → es)。
-  function pickTargetLang(rawUiLang, fallback) {
-    const raw = String(rawUiLang || '').replace(/_/g, '-').toLowerCase();
-    if (!raw) return fallback;
-    const codes = EXT_CONSTANTS.LANGUAGES.map((l) => l.code);
-    const exact = codes.find((c) => c.toLowerCase() === raw);
-    if (exact) return exact;
-    const primary = raw.split('-')[0];
-    if (primary === 'zh') return /hant|tw|hk|mo/.test(raw) ? 'zh-TW' : 'zh-CN';
-    return codes.find((c) => c.toLowerCase() === primary) || fallback;
-  }
-
-  // 首次使用(用户尚未选择过目标语言)时的默认值
-  function defaultTargetLang() {
-    return pickTargetLang(uiLanguage(), EXT_CONSTANTS.DEFAULT_CONFIG.targetLang);
-  }
-
+  // 常量对象先声明:下面的 pickTargetLang/defaultTargetLang 会引用它。
+  // 早先把它放在函数之后,依赖"这两个函数只在初始化完成后才被调用"才侥幸可用,
+  // 任何加载期调用都会踩 TDZ 报错;这里把声明提到前面彻底消除隐患。
   const EXT_CONSTANTS = {
     MSG: {
       TOGGLE: 'TOGGLE',
@@ -98,6 +71,37 @@
     pickTargetLang,
     defaultTargetLang
   };
+
+  // 浏览器 UI 语言(如 'zh-CN'、'en-US')。非扩展环境/无该 API 时返回空串,
+  // 让调用方走兜底分支,测试里因此保持确定性
+  function uiLanguage() {
+    try {
+      if (typeof chrome !== 'undefined' && chrome && chrome.i18n &&
+        typeof chrome.i18n.getUILanguage === 'function') {
+        return chrome.i18n.getUILanguage() || '';
+      }
+    } catch (e) { /* 读取失败按未知语言处理 */ }
+    return '';
+  }
+
+  // 把浏览器 UI 语言映射到受支持的目标语言:先精确匹配,再按主语言子标签匹配。
+  // 中文需要区分简繁(zh-Hant/zh-TW/zh-HK → zh-TW),其余语言直接取主标签(es-419 → es)。
+  function pickTargetLang(rawUiLang, fallback) {
+    const raw = String(rawUiLang || '').replace(/_/g, '-').toLowerCase();
+    if (!raw) return fallback;
+    const codes = EXT_CONSTANTS.LANGUAGES.map((l) => l.code);
+    const exact = codes.find((c) => c.toLowerCase() === raw);
+    if (exact) return exact;
+    const primary = raw.split('-')[0];
+    if (primary === 'zh') return /hant|tw|hk|mo/.test(raw) ? 'zh-TW' : 'zh-CN';
+    return codes.find((c) => c.toLowerCase() === primary) || fallback;
+  }
+
+  // 首次使用(用户尚未选择过目标语言)时的默认值
+  function defaultTargetLang() {
+    return pickTargetLang(uiLanguage(), EXT_CONSTANTS.DEFAULT_CONFIG.targetLang);
+  }
+
   global.EXT_CONSTANTS = EXT_CONSTANTS;
   if (typeof module !== 'undefined' && module.exports) module.exports = EXT_CONSTANTS;
 })(typeof globalThis !== 'undefined' ? globalThis : self);
