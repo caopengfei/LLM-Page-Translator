@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import '../src/shared/constants.js';
 import '../src/shared/i18n.js';
+import '../src/shared/lang-select.js';
 import '../src/options/options.js';
 
 const Options = globalThis.Ext.options;
@@ -69,6 +70,38 @@ describe('saveConfigFrom', () => {
     expect(res.ok).toBe(true);
     expect(writes[0].config.apiKey).toBe('sk-1');
   });
+
+  it('preserves pre-existing config fields it does not manage', async () => {
+    const writes = [];
+    const storage = {
+      get: async () => ({ config: { custom: 'keep', apiKey: 'old' } }),
+      set: async (obj) => writes.push(obj)
+    };
+    const f = form();
+    f.elements.baseUrl.value = 'https://api.test/v1';
+    f.elements.apiKey.value = 'sk-new';
+    f.elements.model.value = 'm1';
+    f.elements.targetLang.value = 'zh-CN';
+    await Options.saveConfigFrom(f, storage);
+    expect(writes[0].config.custom).toBe('keep');
+    expect(writes[0].config.apiKey).toBe('sk-new');
+  });
+
+  it('clears a previously stored timeout when the field is emptied', async () => {
+    const writes = [];
+    const storage = {
+      get: async () => ({ config: { timeoutMs: 45000, apiKey: 'old' } }),
+      set: async (obj) => writes.push(obj)
+    };
+    const f = form();
+    f.elements.baseUrl.value = 'https://api.test/v1';
+    f.elements.apiKey.value = 'sk-1';
+    f.elements.model.value = 'm1';
+    f.elements.targetLang.value = 'zh-CN';
+    f.elements.timeoutSec.value = '';
+    await Options.saveConfigFrom(f, storage);
+    expect('timeoutMs' in writes[0].config).toBe(false); // 回到默认超时,不保留旧值
+  });
 });
 
 describe('timeout field (seconds ↔ config.timeoutMs)', () => {
@@ -104,6 +137,29 @@ describe('timeout field (seconds ↔ config.timeoutMs)', () => {
 
     Options.fillForm(f, {});
     expect(Number(f.elements.timeoutSec.value)).toBe(120); // 默认 120 秒
+  });
+});
+
+describe('fillForm with unknown target language', () => {
+  it('keeps a stored target language that is not in the shared list', () => {
+    const f = form();
+    Options.fillForm(f, { targetLang: 'xx-YY' });
+    // 不静默回落到第一项:补选项并选中,保存时才不会把用户配置改掉
+    expect(f.elements.targetLang.value).toBe('xx-YY');
+    const values = Array.from(f.elements.targetLang.options).map((o) => o.value);
+    expect(values).toContain('xx-YY');
+  });
+
+  it('ensureLangOption appends only missing values', () => {
+    const sel = form().elements.targetLang;
+    const before = sel.options.length;
+    Options.ensureLangOption(sel, 'zh-CN'); // 已存在,不重复添加
+    expect(sel.options.length).toBe(before);
+    Options.ensureLangOption(sel, 'xx');
+    expect(sel.options.length).toBe(before + 1);
+    Options.ensureLangOption(sel, ''); // 空值忽略
+    Options.ensureLangOption(null, 'xx');
+    expect(sel.options.length).toBe(before + 1);
   });
 });
 

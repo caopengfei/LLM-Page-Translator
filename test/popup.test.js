@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import '../src/shared/constants.js';
 import '../src/shared/i18n.js';
+import '../src/shared/lang-select.js';
 import '../src/popup/popup.js';
 
 const Popup = globalThis.Ext.popup;
@@ -63,6 +64,25 @@ describe('describeResult', () => {
   it('falls back to error/unknown payloads', () => {
     expect(Popup.describeResult({ ok: false, error: 'boom' }).text).toBe('boom');
     expect(Popup.describeResult(null).cls).toBe('error');
+  });
+
+  it('keeps the translated count for partial failures (streamed content is restorable)', () => {
+    // main.js 在"流式已上屏、整包失败"时返回 ok:false + state=TRANSLATED + 数量:
+    // 只显示错误原文会把数量吞掉,用户看不到"已有 N 处上屏、可以还原"
+    const res = Popup.describeResult({
+      ok: false,
+      reason: 'error',
+      state: C.STATE.TRANSLATED,
+      translated: 3,
+      chars: 120,
+      ms: 1500,
+      partial: true,
+      message: 'No response from background'
+    });
+    expect(res.cls).toBe('error'); // 仍是失败态,不误导为成功
+    expect(res.text).toContain('Translated 3 text pieces'); // 但已译数量保留
+    expect(res.text).toContain('120 characters');
+    expect(res.text).toContain('No response from background');
   });
 });
 
@@ -211,6 +231,17 @@ describe('target language select', () => {
     expect(sel.options[0].value).toBe('zh-CN');
     expect(sel.options[0].textContent).toBe(C.LANGUAGES[0].label);
     expect(Array.from(sel.options).map((o) => o.value)).toEqual(C.LANGUAGES.map((l) => l.code));
+  });
+
+  it('ensureLangOption appends options missing from the shared list', () => {
+    const sel = document.getElementById('target-lang');
+    Popup.populateLangSelect(sel);
+    Popup.ensureLangOption(sel, 'xx');
+    sel.value = 'xx';
+    expect(sel.value).toBe('xx'); // 未知语言可选,不静默回落到第一项
+    expect(sel.options.length).toBe(C.LANGUAGES.length + 1);
+    Popup.ensureLangOption(sel, 'zh-CN');
+    expect(sel.options.length).toBe(C.LANGUAGES.length + 1); // 已存在不重复
   });
 
   it('loads the stored target language, falling back to the default', async () => {

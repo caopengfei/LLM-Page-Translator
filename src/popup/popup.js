@@ -3,6 +3,7 @@
   const C = global.EXT_CONSTANTS;
   const S = C.STATE;
   const I18n = global.Ext.i18n;
+  const LangSelect = global.Ext.langSelect;
   const t = (key, subs) => I18n.t(key, subs);
 
   async function activeTabId(tabs) {
@@ -87,6 +88,14 @@
     if (res.reason === 'same-language') {
       return { text: res.message || t('popup_status_same_lang_generic'), cls: 'info' };
     }
+    // 部分成功(流式已上屏、整包失败):main.js 会带 state=TRANSLATED + 已译数量回来。
+    // 不能只显示错误原文把数量吞掉——用户需要知道"已有 N 处上屏、可以还原"
+    if (res.state === S.TRANSLATED && typeof res.translated === 'number') {
+      const suffix = res.partial ? t('popup_status_partial') : '';
+      const detail = t('popup_status_translated', [res.translated]) + statsSuffix(res) + suffix;
+      const errText = res.message || res.error;
+      return { text: errText ? detail + ' — ' + errText : detail, cls: 'error' };
+    }
     return { text: res.message || res.error || t('popup_status_not_executed'), cls: 'error' };
   }
 
@@ -150,14 +159,14 @@
     }
   }
 
-  // 用共享清单填充语言下拉(popup 与 options 页同一份,保证可选项一致)
+  // 用共享清单填充语言下拉(与 options 页同一份,保证可选项一致)
   function populateLangSelect(sel) {
-    (C.LANGUAGES || []).forEach((l) => {
-      const opt = document.createElement('option');
-      opt.value = l.code;
-      opt.textContent = l.label;
-      sel.appendChild(opt);
-    });
+    LangSelect.populate(sel);
+  }
+
+  // select 里不存在该值时补一个选项。实现见 shared/lang-select.js(options 页共用同一份)
+  function ensureLangOption(sel, value) {
+    LangSelect.ensureOption(sel, value);
   }
 
   // 读取当前目标语言;未配置时按浏览器 UI 语言推导(推导不出才用 DEFAULT_CONFIG)
@@ -178,6 +187,7 @@
 
   function wirePage(doc, runtime, tabs, storage) {
     if (I18n.apply) I18n.apply(doc); // 填充 HTML 里的 data-i18n 静态文案
+    if (doc) doc.title = t('ext_name'); // 与 options 页一致,标题跟随界面语言
     doc.getElementById('toggle').addEventListener('click', () => { runToggle(doc, runtime, tabs); });
     doc.getElementById('open-options').addEventListener('click', () => {
       runtime.openOptionsPage();
@@ -187,7 +197,10 @@
     if (langSel) {
       populateLangSelect(langSel);
       if (storage) {
-        loadTargetLang(storage).then((code) => { langSel.value = code; });
+        loadTargetLang(storage).then((code) => {
+          ensureLangOption(langSel, code);
+          langSel.value = code;
+        });
         // 切换即保存,下一次翻译用新语言
         langSel.addEventListener('change', () => {
           saveTargetLang(storage, langSel.value).catch(() => {});
@@ -197,7 +210,7 @@
     refreshState(doc, runtime, tabs);
   }
 
-  const api = { activeTabId, labelFor, formatDuration, hintFor, describeResult, refreshState, runToggle, populateLangSelect, loadTargetLang, saveTargetLang, wirePage };
+  const api = { activeTabId, labelFor, formatDuration, hintFor, describeResult, refreshState, runToggle, populateLangSelect, ensureLangOption, loadTargetLang, saveTargetLang, wirePage };
   global.Ext = global.Ext || {};
   global.Ext.popup = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
