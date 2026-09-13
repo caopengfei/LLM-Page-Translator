@@ -46,9 +46,19 @@
     }
   }
 
+  function isValidBaseUrl(value) {
+    try {
+      const url = new URL(String(value || '').trim());
+      return (url.protocol === 'http:' || url.protocol === 'https:') && !!url.hostname;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function validateConfig(cfg) {
     const missing = FIELDS.filter((name) => !cfg || !cfg[name]);
-    return { ok: missing.length === 0, missing };
+    const invalidBaseUrl = !missing.includes('baseUrl') && !isValidBaseUrl(cfg.baseUrl);
+    return { ok: missing.length === 0 && !invalidBaseUrl, missing, ...(invalidBaseUrl ? { invalidBaseUrl: true } : {}) };
   }
 
   async function loadConfigInto(form, storage) {
@@ -92,7 +102,9 @@
     doc.title = t('ext_name') + ' — ' + t('options_page_title');
     const form = doc.getElementById('options-form');
     const status = doc.getElementById('status');
-    const missingMsg = (v) => t('options_status_missing', [v.missing.join(', ')]);
+    const missingMsg = (v) => v.invalidBaseUrl
+      ? t('options_status_invalid_base_url')
+      : t('options_status_missing', [v.missing.join(', ')]);
 
     populateLanguages(form.elements.targetLang);
     form.addEventListener('submit', async (e) => {
@@ -122,7 +134,7 @@
     loadConfigInto(form, storage);
   }
 
-  const api = { FIELDS, TIMEOUT_FIELD, configFromForm, timeoutMsFromForm, fillForm, validateConfig, loadConfigInto, saveConfigFrom, populateLanguages, ensureLangOption, wirePage };
+  const api = { FIELDS, TIMEOUT_FIELD, configFromForm, timeoutMsFromForm, fillForm, isValidBaseUrl, validateConfig, loadConfigInto, saveConfigFrom, populateLanguages, ensureLangOption, wirePage };
   global.Ext = global.Ext || {};
   global.Ext.options = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

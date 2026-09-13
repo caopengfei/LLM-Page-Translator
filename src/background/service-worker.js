@@ -8,6 +8,7 @@ const C = globalThis.EXT_CONSTANTS;
 const Batch = globalThis.Ext.batch;
 const Cache = globalThis.Ext.cache;
 const Llm = globalThis.Ext.llm;
+const t = (key, subs) => globalThis.Ext.i18n.t(key, subs);
 
 function chromeStorage() { return chrome.storage.local; }
 
@@ -60,7 +61,7 @@ async function defaultToggleTab(tabId) {
     return await chrome.tabs.sendMessage(tabId, { type: C.MSG.TOGGLE });
   } catch (e) { /* 未注入 → 走下面的注入分支 */ }
   if (!chrome.scripting || !chrome.scripting.executeScript) {
-    throw new Error('Content script is not available on this page');
+    throw new Error(t('popup_status_page_unavailable'));
   }
   await chrome.scripting.executeScript({ target: { tabId }, files: CONTENT_FILES });
   return chrome.tabs.sendMessage(tabId, { type: C.MSG.TOGGLE });
@@ -107,9 +108,12 @@ async function withRetry(fn, retries, sleepFn, shouldRetry) {
   }
 }
 
-// 仅对"服务端瞬时问题"(HTTP 5xx 等)重试;超时/网络错误直接失败
+// 仅对明确的瞬时问题重试:限流(429)和服务端错误(5xx)。
+// 认证/参数错误、解析错误、超时和网络错误都不会重复发送请求。
 function isRetryable(err) {
-  return !(err && (err.code === 'TIMEOUT' || err.code === 'NETWORK'));
+  if (!err) return false;
+  if (err.code === 'RATE_LIMIT') return true;
+  return Number.isInteger(err.status) && err.status >= 500 && err.status <= 599;
 }
 
 async function loadConfig(configStorage) {
@@ -121,7 +125,7 @@ async function loadConfig(configStorage) {
 async function handleTranslateBatch(msg, deps, sender) {
   const config = await loadConfig(deps.configStorage);
   if (!config.apiKey) {
-    return { ok: false, error: 'API key is not configured. Open the extension options page.' };
+    return { ok: false, error: t('page_not_configured') };
   }
   const items = msg.items || [];
   if (!items.length) return { ok: true, translations: {} };
@@ -163,14 +167,22 @@ async function handleTranslateBatch(msg, deps, sender) {
     const parsed = Batch.parseResponse(raw);
     const newPairs = [];
     const batchTranslations = {};
+    const resolved = [];
     batch.forEach((item, idx) => {
-      const t = parsed[String(idx)];
-      if (typeof t !== 'string' || !t.length) return;
+      const translated = parsed[String(idx)];
+      if (typeof translated !== 'string' || !translated.trim()) {
+        const error = new Error(t('error_incomplete_response', [String(idx)]));
+        error.code = 'INCOMPLETE_RESPONSE';
+        throw error;
+      }
+      resolved.push({ item, text: translated });
+      newPairs.push({ src: item.text, dst: translated });
+    });
+    resolved.forEach(({ item, text }) => {
       (idsByText.get(item.text) || []).forEach((id) => {
-        translations[id] = t;
-        batchTranslations[id] = t;
+        translations[id] = text;
+        batchTranslations[id] = text;
       });
-      newPairs.push({ src: item.text, dst: t });
     });
     if (newPairs.length) {
       // 缓存写入失败（含配额超限）只降级为告警：译文照常返回并推送，
@@ -207,7 +219,7 @@ async function handleTranslateBatch(msg, deps, sender) {
   await Promise.all(Array.from({ length: concurrency }, worker));
 
   if (succeeded === 0 && Object.keys(translations).length === 0) {
-    return { ok: false, error: lastError || 'All batches failed' };
+    return { ok: false, error: lastError || t('popup_status_not_executed') };
   }
   if (succeeded < batches.length) {
     // 部分批次失败:已成功部分照常返回,未译节点下一轮(或再次点击)重新请求
@@ -228,7 +240,7 @@ async function handleDetectLanguage(msg, deps) {
 
 async function handleTestConnection(msg, deps) {
   const cfg = Object.assign({}, C.DEFAULT_CONFIG, msg.config || {});
-  if (!cfg.apiKey) return { ok: false, error: 'API key is required.' };
+  if (!cfg.apiKey) return { ok: false, error: t('page_not_configured') };
   try {
     const raw = await withRetry(
       () => Llm.translateViaLlm(cfg, { '0': 'Hello, world!' }, deps.fetchImpl, deps.logger),
@@ -244,7 +256,7 @@ async function handleTestConnection(msg, deps) {
 // popup 点击"翻译/还原本页"时调用:对指定 tab 执行切换
 async function handleToggleTab(msg, deps) {
   const tabId = msg.tabId;
-  if (typeof tabId !== 'number') return { ok: false, error: 'tabId is required' };
+  if (typeof tabId !== 'number') return { ok: false, error: t('popup_status_page_unavailable') };
   try {
     const result = await deps.toggleTab(tabId);
     // content script 返回结构化结果时直接透传(popup 据此显示"已翻译 N 处/未翻译原因")
@@ -258,7 +270,7 @@ async function handleToggleTab(msg, deps) {
 // popup 打开时查询当前页状态:用于渲染按钮文案与状态提示
 async function handleGetState(msg, deps) {
   const tabId = msg.tabId;
-  if (typeof tabId !== 'number') return { ok: false, error: 'tabId is required' };
+  if (typeof tabId !== 'number') return { ok: false, error: t('popup_status_page_unavailable') };
   try {
     const result = await deps.queryState(tabId);
     if (result && typeof result.ok === 'boolean') return result;
@@ -286,7 +298,7 @@ export function makeMessageHandler(overrides) {
   };
   return async function handleMessage(msg, sender) {
     try {
-      if (!msg || typeof msg.type !== 'string') return { ok: false, error: 'Unknown message' };
+      if (!msg || typeof msg.type !== 'string') return { ok: false, error: t('popup_status_not_executed') };
       switch (msg.type) {
         case C.MSG.TRANSLATE_BATCH:
           return await handleTranslateBatch(msg, deps, sender);
@@ -299,7 +311,7 @@ export function makeMessageHandler(overrides) {
         case C.MSG.GET_STATE:
           return await handleGetState(msg, deps);
         default:
-          return { ok: false, error: 'Unknown message type: ' + msg.type };
+          return { ok: false, error: t('popup_status_not_executed') };
       }
     } catch (err) {
       return { ok: false, error: String((err && err.message) || err) };

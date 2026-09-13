@@ -24,6 +24,7 @@
   let observerHandle = null;
   // 会话累计统计:源文字符数与翻译总耗时(含动态补翻),随 GET_STATE/响应带给 popup
   let stats = { chars: 0, ms: 0 };
+  let translatedTargetLang = null;
   // 还原代际号:每次还原自增。仍在途的 translateRoots 回包(流式推送/整包兜底)
   // 据此失效,避免"还原后迟到的批次把译文重新写回页面"的状态脱节
   let generation = 0;
@@ -234,6 +235,7 @@
         return { ok: false, reason: 'no-text', state: mode, message: t('page_no_text') };
       }
       mode = S.TRANSLATED;
+      translatedTargetLang = targetLang;
       if (error) {
         // 部分批次失败但已有译文上屏:保持 translated 让"还原"可达,同时把错误带回给 popup
         return { ok: false, reason: 'error', state: mode, translated: translatedCount(), chars: stats.chars, ms: stats.ms, partial: true, message: String((error && error.message) || error) };
@@ -244,7 +246,7 @@
       stopObserver();
       const message = String((err && err.message) || err);
       console.warn('[LLM Page Translator]', message);
-      return { ok: false, reason: 'error', state: mode, message };
+      return { ok: false, reason: 'error', state: mode, message: t('popup_status_failed', [message]) };
     } finally {
       translating = false;
     }
@@ -259,6 +261,7 @@
     mode = S.IDLE;
     skipInfo = null;
     stats = { chars: 0, ms: 0 }; // 页面已还原,统计随之清零
+    translatedTargetLang = null;
     return { ok: true, reason: 'restored', state: mode, restored };
   }
 
@@ -272,8 +275,25 @@
     }
     if (msg.type !== C.MSG.TOGGLE) return false;
     if (mode === S.TRANSLATED) {
-      sendResponse(restorePage());
-      return false;
+      loadConfig().then((config) => {
+        if (config.targetLang === translatedTargetLang) {
+          sendResponse(restorePage());
+          return;
+        }
+        restorePage();
+        translatePage().then(sendResponse).catch((err) => sendResponse({
+          ok: false,
+          reason: 'error',
+          state: mode,
+          message: String((err && err.message) || err)
+        }));
+      }).catch((err) => sendResponse({
+        ok: false,
+        reason: 'error',
+        state: mode,
+        message: String((err && err.message) || err)
+      }));
+      return true;
     }
     translatePage()
       .then(sendResponse)

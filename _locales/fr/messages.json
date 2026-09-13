@@ -55,4 +55,10 @@
   "error_non_json": { "message": "Réponse non JSON de $1 (HTTP $2) : $3 — l'API Base URL doit pointer vers l'adresse racine de l'API (par ex. https://api.openai.com/v1), pas vers une page web ni le point de terminaison complet /chat/completions" },
   "error_batch_json": { "message": "La réponse de l'API n'est pas un JSON valide. Fragment de réponse brut : $1" },
   "error_batch_not_object": { "message": "La réponse du LLM n'est pas un objet JSON" }
+,
+  "options_field_base_url": { "message": "URL de base de l’API" },
+  "options_field_api_key": { "message": "Clé API" },
+  "options_field_model": { "message": "Modèle" },
+  "options_status_invalid_base_url": { "message": "Saisissez une URL de base d’API absolue en http:// ou https://." },
+  "error_incomplete_response": { "message": "Réponse de traduction incomplète : clé $1 manquante" }
 }

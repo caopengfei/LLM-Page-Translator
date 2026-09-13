@@ -55,4 +55,10 @@
   "error_non_json": { "message": "การตอบกลับไม่ใช่ JSON จาก $1 (HTTP $2): $3 — Base URL ควรชี้ไปที่ที่อยู่รากของ API (เช่น https://api.openai.com/v1) ไม่ใช่ที่อยู่หน้าเว็บหรือปลายทาง /chat/completions แบบเต็ม" },
   "error_batch_json": { "message": "การตอบกลับของ API ไม่ใช่ JSON ที่ถูกต้อง ตัวอย่างการตอบกลับดิบ: $1" },
   "error_batch_not_object": { "message": "การตอบกลับของ LLM ไม่ใช่วัตถุ JSON" }
+,
+  "options_field_base_url": { "message": "URL พื้นฐาน API" },
+  "options_field_api_key": { "message": "คีย์ API" },
+  "options_field_model": { "message": "โมเดล" },
+  "options_status_invalid_base_url": { "message": "ป้อน URL พื้นฐาน API แบบสัมบูรณ์ที่ขึ้นต้นด้วย http:// หรือ https://" },
+  "error_incomplete_response": { "message": "การตอบกลับการแปลไม่สมบูรณ์: ไม่มีคีย์ $1" }
 }

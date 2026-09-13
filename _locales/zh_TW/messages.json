@@ -55,4 +55,10 @@
   "error_non_json": { "message": "介面回傳非 JSON($1,HTTP $2):$3 — Base URL 應指向 API 根位址(如 https://api.openai.com/v1),而不是網頁位址或完整的 /chat/completions 端點" },
   "error_batch_json": { "message": "介面回傳的內容不是合法 JSON,原始回應片段:$1" },
   "error_batch_not_object": { "message": "LLM 介面回傳的不是 JSON 物件" }
+,
+  "options_field_base_url": { "message": "API Base URL" },
+  "options_field_api_key": { "message": "API Key" },
+  "options_field_model": { "message": "模型" },
+  "options_status_invalid_base_url": { "message": "請輸入絕對的 http:// 或 https:// API Base URL。" },
+  "error_incomplete_response": { "message": "翻譯回應不完整：缺少鍵 $1" }
 }

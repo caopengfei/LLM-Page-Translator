@@ -55,4 +55,10 @@
   "error_non_json": { "message": "$1 से गैर-JSON प्रतिक्रिया (HTTP $2): $3 — Base URL को API मूल पते (जैसे https://api.openai.com/v1) की ओर इंगित होना चाहिए, किसी वेब पृष्ठ या पूरे /chat/completions एंडपॉइंट की ओर नहीं" },
   "error_batch_json": { "message": "API प्रतिक्रिया मान्य JSON नहीं है। कच्ची प्रतिक्रिया का अंश: $1" },
   "error_batch_not_object": { "message": "LLM प्रतिक्रिया JSON ऑब्जेक्ट नहीं है" }
+,
+  "options_field_base_url": { "message": "API बेस URL" },
+  "options_field_api_key": { "message": "API कुंजी" },
+  "options_field_model": { "message": "मॉडल" },
+  "options_status_invalid_base_url": { "message": "पूर्ण http:// या https:// API बेस URL दर्ज करें।" },
+  "error_incomplete_response": { "message": "अपूर्ण अनुवाद प्रतिक्रिया: कुंजी $1 गायब है" }
 }

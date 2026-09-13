@@ -55,4 +55,10 @@
   "error_non_json": { "message": "Niet-JSON-reactie van $1 (HTTP $2): $3 — de Base URL moet naar het API-basisadres wijzen (bijv. https://api.openai.com/v1), niet naar een webpagina of het volledige /chat/completions-eindpunt" },
   "error_batch_json": { "message": "De API-reactie is geen geldige JSON. Ruwe reactiefragment: $1" },
   "error_batch_not_object": { "message": "De LLM-reactie is geen JSON-object" }
+,
+  "options_field_base_url": { "message": "API-basis-URL" },
+  "options_field_api_key": { "message": "API-sleutel" },
+  "options_field_model": { "message": "Model" },
+  "options_status_invalid_base_url": { "message": "Voer een absolute http://- of https://-API-basis-URL in." },
+  "error_incomplete_response": { "message": "Onvolledig vertaalantwoord: sleutel $1 ontbreekt" }
 }

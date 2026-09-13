@@ -28,6 +28,16 @@ describe('validateConfig', () => {
     expect(v.ok).toBe(false);
     expect(v.missing).toEqual(['baseUrl', 'apiKey', 'model', 'targetLang']);
   });
+
+  it.each(['api.test/v1', '/v1', 'ftp://api.test/v1'])('rejects a non-http(s) absolute base URL: %s', (baseUrl) => {
+    const v = Options.validateConfig({ baseUrl, apiKey: 'k', model: 'm', targetLang: 'zh-CN' });
+    expect(v.ok).toBe(false);
+    expect(v.invalidBaseUrl).toBe(true);
+  });
+
+  it.each(['https://api.test/v1', 'http://localhost:11434/v1', 'http://127.0.0.1:8080/v1'])('accepts supported base URL: %s', (baseUrl) => {
+    expect(Options.validateConfig({ baseUrl, apiKey: 'k', model: 'm', targetLang: 'zh-CN' })).toEqual({ ok: true, missing: [] });
+  });
 });
 
 describe('configFromForm / fillForm round-trip', () => {

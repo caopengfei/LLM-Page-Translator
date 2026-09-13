@@ -69,6 +69,36 @@ describe('collect', () => {
     const items = Collect.collect(document, {});
     expect(items.filter((i) => i.kind === 'text').map((i) => i.text)).not.toContain('code sample');
   });
+
+  it('collects attributes from the root element itself', () => {
+    const input = document.createElement('input');
+    input.setAttribute('placeholder', 'Type your name');
+    document.body.appendChild(input);
+    expect(Collect.collect(input, {}).map((item) => item.text)).toContain('Type your name');
+  });
+
+  it('collects alt and placeholder on any element with those attributes', () => {
+    document.body.innerHTML = '<div placeholder="Custom field" alt="Diagram label"></div>';
+    const attrs = Collect.collect(document, {}).filter((item) => item.kind === 'attr');
+    expect(attrs.map((item) => [item.attr, item.text])).toEqual([
+      ['placeholder', 'Custom field'],
+      ['alt', 'Diagram label']
+    ]);
+  });
+
+  it('skips hidden and aria-hidden content and attributes', () => {
+    document.body.innerHTML = `
+      <div hidden><p>Hidden text</p><input title="Hidden title"></div>
+      <div aria-hidden="true"><p>Aria hidden text</p><input title="Aria hidden title"></div>
+      <div style="display: none"><p>Display hidden text</p><input title="Display hidden title"></div>
+      <p>Visible text</p>
+    `;
+    const items = Collect.collect(document, {});
+    const values = items.map((item) => item.text);
+    expect(values).toContain('Visible text');
+    expect(values.some((value) => value.includes('Hidden'))).toBe(false);
+    expect(values.some((value) => value.includes('hidden'))).toBe(false);
+  });
 });
 
 describe('ATTR_NAMES', () => {

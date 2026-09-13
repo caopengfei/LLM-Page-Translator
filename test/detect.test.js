@@ -29,11 +29,20 @@ describe('pageLang', () => {
 });
 
 describe('langMatches', () => {
-  it('compares primary subtags only', () => {
+  it('compares primary subtags for non-Chinese languages', () => {
     expect(Detect.langMatches('en', 'en-US')).toBe(true);
     expect(Detect.langMatches('en-US', 'en')).toBe(true);
     expect(Detect.langMatches('en', 'zh-CN')).toBe(false);
     expect(Detect.langMatches(null, 'zh-CN')).toBe(false);
+  });
+
+  it('distinguishes simplified and traditional Chinese variants', () => {
+    expect(Detect.langMatches('zh-CN', 'zh-Hans')).toBe(true);
+    expect(Detect.langMatches('zh-Hans', 'zh-SG')).toBe(true);
+    expect(Detect.langMatches('zh-TW', 'zh-Hant')).toBe(true);
+    expect(Detect.langMatches('zh-HK', 'zh-TW')).toBe(true);
+    expect(Detect.langMatches('zh-CN', 'zh-TW')).toBe(false);
+    expect(Detect.langMatches('zh-Hans', 'zh-Hant')).toBe(false);
   });
 });
 

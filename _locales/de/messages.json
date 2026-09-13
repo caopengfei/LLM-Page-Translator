@@ -55,4 +55,10 @@
   "error_non_json": { "message": "Nicht-JSON-Antwort von $1 (HTTP $2): $3 — die Base URL sollte auf die API-Stammadresse zeigen (z. B. https://api.openai.com/v1), nicht auf eine Webseite oder den vollständigen /chat/completions-Endpunkt" },
   "error_batch_json": { "message": "Die API-Antwort ist kein gültiges JSON. Rohes Antwortfragment: $1" },
   "error_batch_not_object": { "message": "Die LLM-Antwort ist kein JSON-Objekt" }
+,
+  "options_field_base_url": { "message": "API-Basis-URL" },
+  "options_field_api_key": { "message": "API-Schlüssel" },
+  "options_field_model": { "message": "Modell" },
+  "options_status_invalid_base_url": { "message": "Gib eine absolute http://- oder https://-API-Basis-URL ein." },
+  "error_incomplete_response": { "message": "Unvollständige Übersetzungsantwort: Schlüssel $1 fehlt" }
 }

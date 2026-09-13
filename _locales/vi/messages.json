@@ -55,4 +55,10 @@
   "error_non_json": { "message": "Phản hồi không phải JSON từ $1 (HTTP $2): $3 — Base URL phải trỏ tới địa chỉ gốc của API (ví dụ https://api.openai.com/v1), không phải địa chỉ trang web hay điểm cuối /chat/completions đầy đủ" },
   "error_batch_json": { "message": "Phản hồi của API không phải JSON hợp lệ. Đoạn phản hồi thô: $1" },
   "error_batch_not_object": { "message": "Phản hồi của LLM không phải là đối tượng JSON" }
+,
+  "options_field_base_url": { "message": "URL cơ sở API" },
+  "options_field_api_key": { "message": "Khóa API" },
+  "options_field_model": { "message": "Mô hình" },
+  "options_status_invalid_base_url": { "message": "Nhập URL cơ sở API tuyệt đối http:// hoặc https://." },
+  "error_incomplete_response": { "message": "Phản hồi dịch chưa đầy đủ: thiếu khóa $1" }
 }

@@ -6,7 +6,7 @@
     'CODE', 'PRE', 'KBD', 'SAMP', 'IFRAME'
   ]);
   const ATTR_NAMES = ['placeholder', 'title', 'aria-label', 'alt'];
-  const ATTR_SELECTOR = 'input[placeholder], textarea[placeholder], [title], [aria-label], img[alt]';
+  const ATTR_SELECTOR = '[placeholder], [title], [aria-label], [alt]';
   // DOM NodeFilter 数值常量:SHOW_TEXT=4, FILTER_ACCEPT=1, FILTER_REJECT=2
   const SHOW_TEXT = 4;
   const FILTER_ACCEPT = 1;
@@ -25,6 +25,51 @@
     // stop 元素自身若是 skip 标签(如 collect(codeElement) 直接以 skip 元素为根)也要拒绝
     if (el && stop && SKIP_TAGS.has(stop.tagName)) return true;
     return false;
+  }
+
+  function isHiddenElement(el, stop) {
+    let current = el;
+    while (current && current !== stop) {
+      if (current.hidden || String(current.getAttribute('aria-hidden') || '').toLowerCase() === 'true') return true;
+      const view = current.ownerDocument && current.ownerDocument.defaultView;
+      if (view && typeof view.getComputedStyle === 'function') {
+        const style = view.getComputedStyle(current);
+        if (style && (style.display === 'none' || style.visibility === 'hidden')) return true;
+      }
+      current = current.parentElement;
+    }
+    if (stop && stop.nodeType === 1) {
+      if (stop.hidden || String(stop.getAttribute('aria-hidden') || '').toLowerCase() === 'true') return true;
+      const view = stop.ownerDocument && stop.ownerDocument.defaultView;
+      if (view && typeof view.getComputedStyle === 'function') {
+        const style = view.getComputedStyle(stop);
+        if (style && (style.display === 'none' || style.visibility === 'hidden')) return true;
+      }
+    }
+    return false;
+  }
+
+  function matchesAttr(el) {
+    return el && el.nodeType === 1 && typeof el.matches === 'function' && el.matches(ATTR_SELECTOR);
+  }
+
+  function collectAttributes(attrScope, skipMap, items) {
+    const elements = [];
+    if (attrScope && attrScope.nodeType === 1 && matchesAttr(attrScope)) elements.push(attrScope);
+    if (attrScope && typeof attrScope.querySelectorAll === 'function') {
+      elements.push(...attrScope.querySelectorAll(ATTR_SELECTOR));
+    }
+    elements.forEach((el) => {
+      if (hasSkipAncestor(el, attrScope) || isHiddenElement(el, attrScope)) return;
+      ATTR_NAMES.forEach((name) => {
+        if (!el.hasAttribute(name)) return;
+        const value = el.getAttribute(name) || '';
+        if (!value.trim() || !/\p{L}/u.test(value)) return;
+        const key = skipKey('attr', name);
+        if (skipMap && isSkipped(skipMap, el, key)) return;
+        items.push({ node: el, kind: 'attr', attr: name, text: value.trim() });
+      });
+    });
   }
 
   function isSkipped(map, node, key) {
@@ -56,7 +101,7 @@
         acceptNode(node) {
           const parent = node.parentElement;
           if (!parent) return FILTER_REJECT;
-          if (hasSkipAncestor(node, scope)) return FILTER_REJECT;
+          if (hasSkipAncestor(node, scope) || isHiddenElement(parent, scope)) return FILTER_REJECT;
           if (!node.nodeValue || !node.nodeValue.trim()) return FILTER_REJECT;
           if (skipMap && isSkipped(skipMap, node, 'text')) return FILTER_REJECT;
           return FILTER_ACCEPT;
@@ -70,17 +115,7 @@
 
     if (doc) {
       const attrScope = root.nodeType === 9 ? doc : root;
-      attrScope.querySelectorAll(ATTR_SELECTOR).forEach((el) => {
-        if (hasSkipAncestor(el, attrScope)) return;
-        ATTR_NAMES.forEach((name) => {
-          if (!el.hasAttribute(name)) return;
-          const value = el.getAttribute(name) || '';
-          if (!value.trim() || !/\p{L}/u.test(value)) return;
-          const key = skipKey('attr', name);
-          if (skipMap && isSkipped(skipMap, el, key)) return;
-          items.push({ node: el, kind: 'attr', attr: name, text: value.trim() });
-        });
-      });
+      collectAttributes(attrScope, skipMap, items);
     }
 
     items.forEach((item, i) => { item.id = 'i' + i; });

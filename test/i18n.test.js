@@ -87,6 +87,17 @@ describe('_locales catalogs', () => {
     });
   });
 
+  it('popup and options pages mark all user-facing static text for localization', () => {
+    const pages = ['src/popup/popup.html', 'src/options/options.html'];
+    pages.forEach((relativePath) => {
+      const html = readFileSync(resolve(testDir, '..', relativePath), 'utf8');
+      const textNodes = [...html.matchAll(/>([^<>]+)</g)]
+        .map((match) => match[1].trim())
+        .filter((text) => text && !/^[-—…✓]+$/.test(text));
+      expect(textNodes, `${relativePath} contains hard-coded text`).toEqual([]);
+    });
+  });
+
   it('every key referenced in src/ (t()/tr() and data-i18n*) is defined', () => {
     const srcDir = resolve(testDir, '..', 'src');
     const files = [];

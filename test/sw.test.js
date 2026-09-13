@@ -93,6 +93,49 @@ describe('TRANSLATE_BATCH', () => {
     expect(typeof res.error).toBe('string');
   });
 
+  it('does not retry malformed LLM JSON responses', async () => {
+    const { deps } = makeDeps();
+    let calls = 0;
+    deps.fetchImpl = async () => {
+      calls += 1;
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: 'not json' } }] }) };
+    };
+    const res = await makeMessageHandler(deps)({
+      type: C.MSG.TRANSLATE_BATCH, items: [{ id: 'a', text: 'Hello' }], targetLang: 'zh-CN'
+    });
+    expect(res.ok).toBe(false);
+    expect(calls).toBe(1);
+  });
+
+  it('rejects empty and partial batch responses without caching or streaming them', async () => {
+    const { deps, cacheBackend } = makeDeps();
+    const pushed = [];
+    deps.sendToTab = async (tabId, msg) => { pushed.push(msg); };
+    let response = {};
+    deps.fetchImpl = async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify(response) } }] })
+    });
+    const handler = makeMessageHandler(deps);
+    response = {};
+    const empty = await handler({ type: C.MSG.TRANSLATE_BATCH, items: [{ id: 'a', text: 'Hello' }], targetLang: 'zh-CN' }, { tab: { id: 8 } });
+    expect(empty.ok).toBe(false);
+    expect(empty.error).toContain('Incomplete translation response');
+    expect(pushed).toEqual([]);
+    expect((await Cache.getMany(cacheBackend, 'zh-CN', ['Hello'], 'm1')).get('Hello')).toBeUndefined();
+
+    response = { '0': '你好' };
+    const partial = await handler({
+      type: C.MSG.TRANSLATE_BATCH,
+      items: [{ id: 'a', text: 'Hello' }, { id: 'b', text: 'World' }],
+      targetLang: 'zh-CN'
+    }, { tab: { id: 8 } });
+    expect(partial.ok).toBe(false);
+    expect(partial.translations).toBeUndefined();
+    expect(pushed).toEqual([]);
+  });
+
   it('does not retry when the request times out (unreachable endpoint)', async () => {
     const { deps } = makeDeps();
     let calls = 0;
@@ -117,6 +160,20 @@ describe('TRANSLATE_BATCH', () => {
       const err = new Error('请求失败: https://api.test/v1/chat/completions — Failed to fetch');
       err.code = 'NETWORK';
       throw err;
+    };
+    const res = await makeMessageHandler(deps)({
+      type: C.MSG.TRANSLATE_BATCH, items: [{ id: 'a', text: 'Hello' }], targetLang: 'zh-CN'
+    });
+    expect(res.ok).toBe(false);
+    expect(calls).toBe(1);
+  });
+
+  it.each([400, 401, 403, 404])('does not retry permanent HTTP %i errors', async (status) => {
+    const { deps } = makeDeps();
+    let calls = 0;
+    deps.fetchImpl = async () => {
+      calls += 1;
+      return { ok: false, status, text: async () => 'permanent failure' };
     };
     const res = await makeMessageHandler(deps)({
       type: C.MSG.TRANSLATE_BATCH, items: [{ id: 'a', text: 'Hello' }], targetLang: 'zh-CN'
@@ -506,6 +563,6 @@ describe('default toggleTab (chrome stubs)', () => {
     });
     const res = await bareHandler()({ type: C.MSG.TOGGLE_TAB, tabId: 9 });
     expect(res.ok).toBe(false);
-    expect(res.error).toContain('not available');
+    expect(res.error).toMatch(/available|error_content_script_unavailable/);
   });
 });

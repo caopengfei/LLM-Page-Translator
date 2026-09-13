@@ -55,4 +55,10 @@
   "error_non_json": { "message": "Non-JSON response from $1 (HTTP $2): $3 — the Base URL should point to the API root address (e.g. https://api.openai.com/v1), not a web page or the full /chat/completions endpoint" },
   "error_batch_json": { "message": "The API response is not valid JSON. Raw response fragment: $1" },
   "error_batch_not_object": { "message": "The LLM response is not a JSON object" }
+,
+  "options_field_base_url": { "message": "API Base URL" },
+  "options_field_api_key": { "message": "API Key" },
+  "options_field_model": { "message": "Model" },
+  "options_status_invalid_base_url": { "message": "Enter an absolute http:// or https:// API Base URL." },
+  "error_incomplete_response": { "message": "Incomplete translation response: missing key $1" }
 }

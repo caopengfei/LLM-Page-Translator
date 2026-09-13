@@ -225,4 +225,28 @@ describe('streaming translation into the page', () => {
     // 空页面也走了"翻译失败保持 idle"分支:观察器已停,可直接重试
     stub.setSend(() => Promise.resolve({ ok: false, error: 'unhandled' }));
   });
+
+  it('restores and retranslates in one toggle when the target language changed', async () => {
+    document.body.innerHTML = '<p>Hello</p>';
+    const calls = [];
+    stub.setSend((msg) => {
+      calls.push(msg);
+      if (msg.type === C.MSG.DETECT_LANGUAGE) return Promise.resolve({ ok: true, language: 'fr' });
+      if (msg.type === C.MSG.TRANSLATE_BATCH) {
+        const target = msg.targetLang;
+        return Promise.resolve({ ok: true, translations: { i0: target === 'zh-CN' ? '你好' : 'Hallo' }, partial: false });
+      }
+      return Promise.resolve({ ok: false, error: 'unexpected ' + msg.type });
+    });
+    const first = await toggle();
+    expect(first.reason).toBe('translated');
+    expect(document.body.textContent).toBe('你好');
+
+    stub.setStoredConfig({ baseUrl: 'https://api.test/v1', apiKey: 'sk-test', model: 'm', targetLang: 'de' });
+    const switched = await toggle();
+    expect(switched.reason).toBe('translated');
+    expect(document.body.textContent).toBe('Hallo');
+    expect(calls.filter((msg) => msg.type === C.MSG.TRANSLATE_BATCH).map((msg) => msg.targetLang))
+      .toEqual(['zh-CN', 'de']);
+  });
 });

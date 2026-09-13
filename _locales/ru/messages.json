@@ -55,4 +55,10 @@
   "error_non_json": { "message": "Ответ не в формате JSON от $1 (HTTP $2): $3 — Base URL должен указывать на корневой адрес API (например, https://api.openai.com/v1), а не на веб-страницу или полную конечную точку /chat/completions" },
   "error_batch_json": { "message": "Ответ API не является корректным JSON. Фрагмент исходного ответа: $1" },
   "error_batch_not_object": { "message": "Ответ LLM не является объектом JSON" }
+,
+  "options_field_base_url": { "message": "Базовый URL API" },
+  "options_field_api_key": { "message": "API-ключ" },
+  "options_field_model": { "message": "Модель" },
+  "options_status_invalid_base_url": { "message": "Введите абсолютный базовый URL API с http:// или https://." },
+  "error_incomplete_response": { "message": "Неполный ответ перевода: отсутствует ключ $1" }
 }

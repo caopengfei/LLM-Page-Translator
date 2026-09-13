@@ -108,7 +108,7 @@ The toolbar panel has its own **target language** dropdown (18 languages). Chang
 ```
 
 1. **Collect** — the content script walks text nodes with a `TreeWalker` and scans `placeholder` / `title` / `aria-label` / `alt`; a `WeakMap` records "already skipped" markers to avoid re-translating
-2. **Batch** — after de-duplication, items are split at **8 items / 400 characters** and sent as **3 concurrent batches**
+2. **Batch** — after de-duplication, items are split at **8 items / 400 characters** and sent as **3 concurrent batches**; an individual text node may remain larger than 400 characters to preserve node boundaries
 3. **Request** — the service worker submits a JSON object shaped `{ "0": "text", "1": "…" }` and requires the model to return JSON with the same keys; a 120s timeout and retries apply
 4. **Render** — each finished batch is pushed to the page via `RESULT_BATCH` and written to the cache; the DOM applies records deduplicated by id
 5. **Back-fill** — the `MutationObserver` debounces 500ms, collects changed nodes, and re-translates only the new or rewritten ones
@@ -128,8 +128,8 @@ The page keeps three states rather than a simple boolean — "skipped because sa
 ## Cost and reliability
 
 - **De-duplication** — repeated text within a batch is requested once; source text that hits the cache across batches or sessions is read directly
-- **Cache** — keyed by "target language + source text" (FNV-1a 64-bit hash) in `chrome.storage.local`; the earliest-added entries are evicted once the size watermark is reached
-- **Retries** — failures are retried **2 times** with 1s / 2s backoff, **only for transient server-side problems (such as HTTP 5xx)**; timeouts and unreachable networks fail immediately so users don't wait through 3× the timeout
+- **Cache** — keyed by "target language + model + source text" (FNV-1a 64-bit hash) in `chrome.storage.local`; the earliest-added entries are evicted once the size watermark is reached
+- **Retries** — failures are retried **2 times** with 1s / 2s backoff for HTTP 5xx and 5s / 10s backoff for HTTP 429; other client, parsing, timeout, and network errors fail immediately
 - **Partial success** — when a batch fails permanently, successful batches still return and are cached, so the next click only back-fills what is missing
 
 ---
@@ -150,7 +150,8 @@ UI copy is not hard-coded. It lives in `_locales/<locale>/messages.json`, and Ch
 
 ```bash
 npm install
-npm test        # Vitest + jsdom, 13 test files / 157 cases
+npm test        # Vitest + jsdom; run the command to see the current test count
+npm run validate # Verify manifest-referenced extension resources
 ```
 
 Coverage includes batch splitting and response parsing, cache hashing, DOM collection and apply/restore reconciliation, observer debouncing, LLM request building and timeouts, service-worker message routing and retries, popup/options state rendering, i18n key completeness, and manifest file existence.

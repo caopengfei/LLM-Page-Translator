@@ -55,4 +55,10 @@
   "error_non_json": { "message": "接口返回非 JSON($1,HTTP $2):$3 — Base URL 应指向 API 根地址(如 https://api.openai.com/v1),而不是网页地址或完整的 /chat/completions 端点" },
   "error_batch_json": { "message": "接口返回的内容不是合法 JSON,原始响应片段:$1" },
   "error_batch_not_object": { "message": "LLM 接口返回的不是 JSON 对象" }
+,
+  "options_field_base_url": { "message": "API Base URL" },
+  "options_field_api_key": { "message": "API Key" },
+  "options_field_model": { "message": "模型" },
+  "options_status_invalid_base_url": { "message": "请输入绝对的 http:// 或 https:// API Base URL。" },
+  "error_incomplete_response": { "message": "翻译响应不完整：缺少键 $1" }
 }

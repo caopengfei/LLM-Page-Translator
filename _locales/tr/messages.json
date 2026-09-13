@@ -55,4 +55,10 @@
   "error_non_json": { "message": "$1'den JSON olmayan yanıt (HTTP $2): $3 — Base URL API kök adresini göstermelidir (ör. https://api.openai.com/v1), bir web sayfasını veya tam /chat/completions uç noktasını değil" },
   "error_batch_json": { "message": "API yanıtı geçerli JSON değil. Ham yanıt parçası: $1" },
   "error_batch_not_object": { "message": "LLM yanıtı bir JSON nesnesi değil" }
+,
+  "options_field_base_url": { "message": "API temel URL’si" },
+  "options_field_api_key": { "message": "API anahtarı" },
+  "options_field_model": { "message": "Model" },
+  "options_status_invalid_base_url": { "message": "Mutlak bir http:// veya https:// API temel URL’si girin." },
+  "error_incomplete_response": { "message": "Eksik çeviri yanıtı: $1 anahtarı yok" }
 }

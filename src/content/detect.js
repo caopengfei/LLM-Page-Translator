@@ -13,10 +13,24 @@
     return normalize(raw);
   }
 
+  function chineseForm(tag) {
+    const parts = String(tag || '').toLowerCase().split('-');
+    if (parts[0] !== 'zh') return null;
+    if (parts.includes('hans') || parts.includes('cn') || parts.includes('sg')) return 'simplified';
+    if (parts.includes('hant') || parts.includes('tw') || parts.includes('hk') || parts.includes('mo')) return 'traditional';
+    return null;
+  }
+
   function langMatches(pageLangTag, targetLang) {
     const a = String(pageLangTag || '').toLowerCase().split('-')[0];
     const b = String(targetLang || '').toLowerCase().split('-')[0];
-    return a !== '' && a === b;
+    if (a === '' || a !== b) return false;
+    if (a === 'zh') {
+      const pageForm = chineseForm(pageLangTag);
+      const targetForm = chineseForm(targetLang);
+      if (pageForm && targetForm) return pageForm === targetForm;
+    }
+    return true;
   }
 
   function sampleText(doc, maxLen) {

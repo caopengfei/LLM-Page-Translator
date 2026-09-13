@@ -55,4 +55,10 @@
   "error_non_json": { "message": "رد غير JSON من $1 (HTTP $2): $3 — ينبغي أن يشير Base URL إلى العنوان الجذري للواجهة (مثل https://api.openai.com/v1)، وليس إلى صفحة ويب أو نقطة النهاية الكاملة /chat/completions" },
   "error_batch_json": { "message": "رد الواجهة ليس JSON صالحًا. مقتطف الرد الخام: $1" },
   "error_batch_not_object": { "message": "رد LLM ليس كائن JSON" }
+,
+  "options_field_base_url": { "message": "عنوان URL الأساسي لـ API" },
+  "options_field_api_key": { "message": "مفتاح API" },
+  "options_field_model": { "message": "النموذج" },
+  "options_status_invalid_base_url": { "message": "أدخل عنوان API مطلقًا يبدأ بـ http:// أو https://." },
+  "error_incomplete_response": { "message": "استجابة ترجمة غير مكتملة: المفتاح $1 مفقود" }
 }

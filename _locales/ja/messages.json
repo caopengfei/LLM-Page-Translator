@@ -55,4 +55,10 @@
   "error_non_json": { "message": "$1 から非 JSON の応答(HTTP $2): $3 — Base URL は API のルートアドレス(例: https://api.openai.com/v1)を指定してください。Web ページのアドレスや完全な /chat/completions エンドポイントではありません" },
   "error_batch_json": { "message": "API の応答が正しい JSON ではありません。生の応答断片: $1" },
   "error_batch_not_object": { "message": "LLM の応答が JSON オブジェクトではありません" }
+,
+  "options_field_base_url": { "message": "API ベース URL" },
+  "options_field_api_key": { "message": "API キー" },
+  "options_field_model": { "message": "モデル" },
+  "options_status_invalid_base_url": { "message": "絶対 URL の http:// または https:// API ベース URL を入力してください。" },
+  "error_incomplete_response": { "message": "不完全な翻訳応答: キー $1 がありません" }
 }

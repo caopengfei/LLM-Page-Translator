@@ -55,4 +55,10 @@
   "error_non_json": { "message": "$1에서 JSON이 아닌 응답(HTTP $2): $3 — Base URL은 API 루트 주소(예: https://api.openai.com/v1)를 가리켜야 하며, 웹 페이지 주소나 전체 /chat/completions 엔드포인트가 아닙니다" },
   "error_batch_json": { "message": "API 응답이 올바른 JSON이 아닙니다. 원본 응답 일부: $1" },
   "error_batch_not_object": { "message": "LLM 응답이 JSON 객체가 아닙니다" }
+,
+  "options_field_base_url": { "message": "API 기본 URL" },
+  "options_field_api_key": { "message": "API 키" },
+  "options_field_model": { "message": "모델" },
+  "options_status_invalid_base_url": { "message": "절대 http:// 또는 https:// API 기본 URL을 입력하세요." },
+  "error_incomplete_response": { "message": "불완전한 번역 응답: 키 $1이 없습니다" }
 }
