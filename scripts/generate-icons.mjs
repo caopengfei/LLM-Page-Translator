@@ -8,6 +8,7 @@ import { deflateSync } from 'node:zlib';
 import { realpathSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { crc32 } from './lib/crc32.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -162,22 +163,6 @@ function renderRgba(px, globeScale, strokeWidth, superSample, meridian = true) {
     }
   }
   return out;
-}
-
-const CRC_TABLE = (() => {
-  const table = new Int32Array(256);
-  for (let i = 0; i < 256; i += 1) {
-    let c = i;
-    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    table[i] = c;
-  }
-  return table;
-})();
-
-function crc32(buffer) {
-  let c = 0xffffffff;
-  for (const byte of buffer) c = CRC_TABLE[(c ^ byte) & 255] ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
 }
 
 function chunk(type, data) {

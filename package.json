@@ -7,6 +7,7 @@
   "scripts": {
     "test": "vitest run",
     "validate": "node scripts/validate-extension.mjs",
+    "package": "node scripts/package-extension.mjs",
     "icons": "node scripts/generate-icons.mjs"
   },
   "devDependencies": {

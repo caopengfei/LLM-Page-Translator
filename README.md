@@ -45,6 +45,8 @@ Options page:
 3. Click **Load unpacked** and select the repository root
 4. Pinning the extension icon to the toolbar is recommended
 
+Loading the repository root works as-is even when `node_modules/` is present — Chrome reads only the files `manifest.json` points at. For a clean upload archive, see [Packaging for the Chrome Web Store](#packaging-for-the-chrome-web-store).
+
 ---
 
 ## Configuration
@@ -153,6 +155,7 @@ UI copy is not hard-coded. It lives in `_locales/<locale>/messages.json`, and Ch
 npm install
 npm test        # Vitest + jsdom; run the command to see the current test count
 npm run validate # Verify manifest-referenced extension resources
+npm run package # Build the Chrome Web Store upload zip into dist/
 npm run icons   # Regenerate icons/icon.svg and the 16/32/48/128 PNGs
 ```
 
@@ -161,6 +164,19 @@ Coverage includes batch splitting and response parsing, cache hashing, DOM colle
 The pack icon has a single source: `scripts/generate-icons.mjs` rasterizes `icons/icon.svg` and the four PNGs from the same tile-plus-globe geometry that `.brand-mark` uses in `src/shared/theme.css`, so the toolbar icon cannot drift from the header mark on the panel and options pages. Edit the generator, not the PNGs. The 16px variant intentionally drops the meridian: inside a 12px globe the meridian plus the equator reads as a lattice rather than a sphere.
 
 After changing code, click the refresh button on the extension card at `chrome://extensions` to reload; changes to content scripts also require reloading the target page.
+
+### Packaging for the Chrome Web Store
+
+```bash
+npm run package                       # → dist/llm-page-translator-<version>.zip
+npm run package -- --out ../release   # write the archive somewhere else
+```
+
+The packager copies an allow-list of runtime files — `manifest.json`, `src/`, `_locales/`, `icons/`, `LICENSE` — and nothing else, so the dev-only trees (`node_modules/`, `test/`, `docs/`, `scripts/`, the package manifests) never reach the upload. That is the whole difference between the ≈93 KB archive and the ≈44 MB checkout, 43 MB of which is `node_modules/`: it holds jsdom and vitest, needed only to run `npm test`, and Chrome never reads it.
+
+Before writing anything it runs the checks that a store rejection or a broken install would come from: every manifest reference (including the CSS/JS the two HTML pages pull in) is in the package, `manifest.json` sits at the archive root rather than inside a wrapper folder, no entry starts with `.` or `_` outside the reserved `_locales/`, the `default_locale` catalog exists, `manifest.version` is a valid 1–4 part version, the PNG icons really are the dimensions `manifest.icons` declares, and the `__MSG_*__` placeholders resolve to real text. Any failure aborts the run instead of producing a zip.
+
+The archive is assembled by `scripts/package-extension.mjs` and `scripts/lib/crc32.mjs` instead of an archiver dependency, matching how the icon generator writes PNGs by hand — this repo's tooling adds no dependencies. Entries are sorted and stamped with a fixed DOS timestamp, so packing the same source twice yields byte-identical archives (`SOURCE_DATE_EPOCH` overrides the stamp), and `test/package.test.js` re-opens the result with an independent reader to keep the hand-written container honest.
 
 ### Debug logging
 
@@ -199,8 +215,10 @@ src/content/main.js              content orchestration entry (TOGGLE switching +
 src/popup/                       toolbar panel (popup.html / popup.css / popup.js)
 src/options/                     options page (options.html / options.css / options.js)
 test/                            unit tests (Vitest + jsdom)
-scripts/                         manifest resource validation + icon generation
+scripts/                         manifest resource validation + icon generation + store packaging
+scripts/lib/crc32.mjs            shared CRC-32 for the PNG and ZIP writers
 docs/superpowers/                design and implementation-plan documents (Chinese)
+dist/                            packaging output, created by `npm run package` (git-ignored)
 ```
 
 ---

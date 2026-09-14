@@ -45,6 +45,8 @@
 3. 点 **加载已解压的扩展程序**,选择本仓库根目录
 4. 建议把扩展图标固定到工具栏,方便使用
 
+直接选仓库根目录即可,即使里面有 `node_modules/` 也不影响 —— Chrome 只读 `manifest.json` 指向的文件。要生成干净的上传包,见[打包上架](#打包上架)。
+
 ---
 
 ## 配置
@@ -153,6 +155,7 @@
 npm install
 npm test        # Vitest + jsdom;运行命令查看当前测试数量
 npm run validate # 校验 manifest 引用的扩展资源
+npm run package # 打包出可上架 Chrome 应用商店的 zip,输出到 dist/
 npm run icons   # 重新生成 icons/icon.svg 与 16/32/48/128 四个 PNG
 ```
 
@@ -161,6 +164,19 @@ npm run icons   # 重新生成 icons/icon.svg 与 16/32/48/128 四个 PNG
 扩展图标只有一份来源:`scripts/generate-icons.mjs` 用与 `src/shared/theme.css` 中 `.brand-mark` 相同的「圆角磁贴 + 地球」几何,同时栅格化出 `icons/icon.svg` 和四个 PNG,因此工具栏图标不会再和面板、设置页的标识脱节。要改图标请改生成器,不要直接改 PNG。16px 那一档有意去掉经线:在 12px 的地球里,经线加上赤道会糊成一片格栅,而不是球体。
 
 修改代码后,在 `chrome://extensions` 点扩展卡片上的刷新按钮即可生效;改了 content script 后需刷新目标网页。
+
+### 打包上架
+
+```bash
+npm run package                       # → dist/llm-page-translator-<version>.zip
+npm run package -- --out ../release   # 换一个输出目录
+```
+
+打包脚本按白名单只收运行时文件:`manifest.json`、`src/`、`_locales/`、`icons/`、`LICENSE`,其余一概不进包。因此 `node_modules/`、`test/`、`docs/`、`scripts/`、package 清单这些开发期目录不会出现在上传包里 —— 这正是 ≈93 KB 的上传包和 ≈44 MB 检出目录的差别,后者里 43 MB 是 `node_modules/`,光 jsdom 和 vitest 就占大头,它们只在跑 `npm test` 时有用,Chrome 根本不会读。
+
+写盘之前它会先过一遍商店审核和安装真会踩的坑:manifest 引用的每个文件(含两个 HTML 页面里挂的 CSS/JS)都在包里、`manifest.json` 位于压缩包根目录而不是套一层文件夹、除保留的 `_locales/` 外没有以 `.` 或 `_` 开头的条目、`default_locale` 对应的语言包存在、`manifest.version` 是合法的 1~4 段版本号、PNG 图标的实际尺寸与 `manifest.icons` 声明一致、`__MSG_*__` 占位符能解析出真实文案。任何一项不过就直接中止,不会产出一个坏包。
+
+压缩包由 `scripts/package-extension.mjs` 配合 `scripts/lib/crc32.mjs` 直接写出,不引入打包库 —— 和图标生成器手写 PNG 是同一个取舍:本仓库的工具链不加依赖。条目按名字排序、时间戳固定,所以同一份源码两次打包字节完全一致(可用 `SOURCE_DATE_EPOCH` 覆盖时间戳);`test/package.test.js` 用一套独立实现的读取器重新解开这个包,防止手写的 ZIP 结构出错。
 
 ### 调试日志
 
@@ -199,8 +215,10 @@ src/content/main.js               content 编排入口(TOGGLE 切换 + 流式上
 src/popup/                        工具栏面板(popup.html / popup.css / popup.js)
 src/options/                      配置页(options.html / options.css / options.js)
 test/                             单元测试(Vitest + jsdom)
-scripts/                          manifest 资源校验 + 图标生成
+scripts/                          manifest 资源校验 + 图标生成 + 上架打包
+scripts/lib/crc32.mjs             PNG 与 ZIP 两个写入器共用的 CRC-32
 docs/superpowers/                 设计与实现计划文档
+dist/                             打包产物,由 `npm run package` 生成(已 gitignore)
 ```
 
 ---
